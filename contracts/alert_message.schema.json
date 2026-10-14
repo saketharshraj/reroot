@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReRoot alert (Pub/Sub topic `alerts`)",
+  "description": "Published by the monitor job, consumed by the notifier. Message data is this JSON, UTF-8.",
+  "type": "object",
+  "required": ["alert_id", "plantation_id", "type", "severity", "created_at", "evidence"],
+  "properties": {
+    "alert_id": { "type": "string" },
+    "plantation_id": { "type": "string" },
+    "type": {
+      "enum": ["dry_spell", "vegetation_decline", "clearing_detected", "fire_nearby", "photo_requested"]
+    },
+    "severity": { "enum": ["info", "warning", "critical"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "evidence": {
+      "type": "object",
+      "description": "Numbers that justify the alert. The notifier's Gemini prompt may only cite these.",
+      "properties": {
+        "ndvi_now": { "type": "number" },
+        "ndvi_expected": { "type": "number" },
+        "soil_moisture": { "type": "number" },
+        "precip_last_14d_mm": { "type": "number" },
+        "precip_next_10d_mm": { "type": "number" },
+        "sources": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "recipient": {
+      "type": "object",
+      "properties": {
+        "chat_id": { "type": "string" },
+        "language": { "type": "string" },
+        "name": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+out/
+node_modules/
+dist/
+# never commit credentials
+*service-account*.json
+*-key.json
+application_default_credentials.json

@@ -1,0 +1,143 @@
+openapi: 3.1.0
+info:
+  title: ReRoot API
+  version: 0.1.0
+  description: >
+    Backend for the ReRoot web app. All geometries are GeoJSON in EPSG:4326.
+    Every numeric result carries `sources` (Earth Engine dataset IDs or BigQuery tables)
+    so the UI can show where each number came from.
+servers:
+  - url: http://localhost:8080
+paths:
+  /healthz:
+    get:
+      summary: Liveness plus dependency checks
+      responses:
+        "200": { description: OK }
+
+  /v1/layers/{layer}:
+    get:
+      summary: XYZ tile URL for a map layer over a region
+      parameters:
+        - { name: layer, in: path, required: true, schema: { enum: [true_colour, ndvi, land_cover, similarity, rainfall, slope] } }
+        - { name: region, in: query, schema: { type: string, default: aravalli_ggn_fbd } }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tile_url: { type: string, description: "XYZ template with {z}/{x}/{y}" }
+                  legend: { type: object }
+                  sources: { type: array, items: { type: string } }
+
+  /v1/assess:
+    post:
+      summary: Impact of clearing a project footprint
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [geometry]
+              properties:
+                geometry: { $ref: "#/components/schemas/Geometry" }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  area_ha: { type: number }
+                  tree_cover_ha: { type: number }
+                  land_cover_ha: { type: object, additionalProperties: { type: number } }
+                  canopy_height_mean_m: { type: number }
+                  carbon_t_est: { type: number }
+                  offset_required_ha: { type: number }
+                  sources: { type: array, items: { type: string } }
+
+  /v1/sites/search:
+    post:
+      summary: Rank candidate planting sites
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_geometry, area_ha_needed]
+              properties:
+                project_geometry: { $ref: "#/components/schemas/Geometry" }
+                area_ha_needed: { type: number }
+                radius_km: { type: number, default: 30 }
+                exclude: { type: array, items: { enum: [farmland, built, water, grassland, steep, protected] }, default: [farmland, built, water, grassland, steep] }
+                weights: { type: object, additionalProperties: { type: number }, description: "water, soil, establishment, connectivity, people" }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  run_id: { type: string }
+                  sites:
+                    type: array
+                    items: { $ref: "#/components/schemas/Site" }
+
+  /v1/agent/chat:
+    post:
+      summary: Gemini agent turn. Streams Server-Sent Events.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                session_id: { type: string }
+                message: { type: string }
+                map_context: { type: object, description: "current viewport, selected geometry" }
+      responses:
+        "200":
+          description: >
+            text/event-stream. Each event is JSON with `type` in
+            [thinking, tool_call, tool_result, map_layer, sites, text, done].
+
+  /v1/plantations:
+    get:
+      summary: List monitored plantations with latest health
+  /v1/plantations/{id}/timeseries:
+    get:
+      summary: NDVI vs expected, soil moisture, rainfall
+
+  /v1/verify-photo:
+    post:
+      summary: Caretaker photo check (Gemini vision + GPS vs polygon)
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                plantation_id: { type: string }
+                photo: { type: string, format: binary }
+                lat: { type: number }
+                lon: { type: number }
+
+components:
+  schemas:
+    Geometry:
+      type: object
+      description: GeoJSON Polygon or MultiPolygon
+    Site:
+      type: object
+      properties:
+        site_id: { type: string }
+        geometry: { $ref: "#/components/schemas/Geometry" }
+        area_ha: { type: number }
+        final_score: { type: number }
+        breakdown: { type: object, additionalProperties: { type: number } }
+        species: { type: array, items: { type: string } }
+        rationale: { type: string }
+        sources: { type: array, items: { type: string } }
