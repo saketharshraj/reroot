@@ -17,6 +17,7 @@ import os
 import subprocess
 
 import google.auth
+from google.auth import credentials as ga_credentials
 from google.auth.exceptions import DefaultCredentialsError
 from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
@@ -43,11 +44,34 @@ def get_credentials():
         return creds
     try:
         creds, _ = google.auth.default(scopes=SCOPES)
+        # User credentials need a quota project for some APIs (e.g. Text-to-Speech).
+        if isinstance(creds, Credentials) and not creds.quota_project_id:
+            creds = creds.with_quota_project(_project())
         return creds
     except DefaultCredentialsError:
         pass
     log.warning("No ADC found; falling back to the gcloud CLI token.")
-    return Credentials(token=None, refresh_handler=_gcloud_token)
+    return GcloudCredentials(_project())
+
+
+def _project() -> str:
+    from reroot.core import config
+    return config.PROJECT
+
+
+class GcloudCredentials(ga_credentials.CredentialsWithQuotaProject):
+    """Access tokens borrowed from the gcloud CLI, re-fetched when they near expiry.
+    (oauth2 Credentials' refresh_handler is lost when copied by with_quota_project.)"""
+
+    def __init__(self, quota_project_id: str | None = None):
+        super().__init__()
+        self._quota_project_id = quota_project_id
+
+    def refresh(self, request):
+        self.token, self.expiry = _gcloud_token()
+
+    def with_quota_project(self, quota_project_id):
+        return GcloudCredentials(quota_project_id)
 
 
 def _gcloud_token(request=None, scopes=None):

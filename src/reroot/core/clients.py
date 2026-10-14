@@ -4,6 +4,7 @@ from functools import lru_cache
 
 import ee
 from google import genai
+from google.genai import types
 from google.cloud import bigquery
 
 from . import config
@@ -34,6 +35,11 @@ def gemini() -> genai.Client:
         location=config.GEMINI_LOCATION,
         credentials=get_credentials(),
     )
+
+
+def gen_config(**kw) -> types.GenerateContentConfig:
+    """GenerateContentConfig with the project's default thinking level."""
+    return types.GenerateContentConfig(thinking_config=types.ThinkingConfig(thinking_level=config.GEMINI_THINKING), **kw)
 
 
 @lru_cache

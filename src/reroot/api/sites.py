@@ -3,6 +3,7 @@ adjacent good cells into sites, then pick the best sites until the area target i
 
 import json
 import uuid
+from functools import lru_cache
 
 from google.cloud import bigquery
 
@@ -11,7 +12,7 @@ from reroot.core import config
 from reroot.core.clients import bq
 
 WEIGHT_KEYS = ["establishment", "water", "connectivity", "people", "terrain"]
-MIN_SITE_HA = 3
+MIN_SITE_HA = 5
 
 SQL = """
 WITH project AS (SELECT ST_GEOGFROMGEOJSON(@geojson, make_valid => TRUE) AS g),
@@ -54,7 +55,7 @@ final AS (
   FROM scored
 ),
 top_cells AS (SELECT * FROM final ORDER BY final_score DESC LIMIT @max_cells),
-clustered AS (SELECT *, ST_CLUSTERDBSCAN(centroid, 110, 2) OVER () AS cluster_id FROM top_cells)
+clustered AS (SELECT *, ST_CLUSTERDBSCAN(centroid, 150, 3) OVER () AS cluster_id FROM top_cells)
 SELECT
   cluster_id,
   SUM(area_ha) AS area_ha,
@@ -72,7 +73,7 @@ SELECT
 FROM clustered
 WHERE cluster_id IS NOT NULL
 GROUP BY cluster_id
-HAVING SUM(area_ha) >= @min_site_ha
+HAVING SUM(clustered.area_ha) >= @min_site_ha
 ORDER BY final_score DESC
 """
 
@@ -93,6 +94,13 @@ def _rationale(r) -> str:
 
 
 def search(req: dict) -> dict:
+    out = _search_cached(json.dumps(req, sort_keys=True))
+    return {**out, "run_id": uuid.uuid4().hex[:12]}
+
+
+@lru_cache(maxsize=128)
+def _search_cached(key: str) -> dict:
+    req = json.loads(key)
     weights = {k: float(req.get("weights", {}).get(k, 1)) for k in WEIGHT_KEYS}
     total = sum(weights.values()) or 1.0
     area_needed = float(req["area_ha_needed"])
@@ -102,7 +110,7 @@ def search(req: dict) -> dict:
         bigquery.ScalarQueryParameter("radius_m", "FLOAT64", float(req.get("radius_km", 15)) * 1000),
         bigquery.ArrayQueryParameter("exclude", "STRING", req.get("exclude", [])),
         bigquery.ScalarQueryParameter("w_total", "FLOAT64", total),
-        bigquery.ScalarQueryParameter("max_cells", "INT64", int(min(max(area_needed * 3, 60), 4000))),
+        bigquery.ScalarQueryParameter("max_cells", "INT64", int(min(max(area_needed * 8, 400), 6000))),
         bigquery.ScalarQueryParameter("min_site_ha", "FLOAT64", MIN_SITE_HA),
         *[bigquery.ScalarQueryParameter(f"w_{k}", "FLOAT64", v) for k, v in weights.items()],
     ]

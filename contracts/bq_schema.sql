@@ -68,7 +68,8 @@ CREATE TABLE IF NOT EXISTS reroot.plantations (
   caretaker_name STRING,
   caretaker_chat_id STRING,         -- Telegram chat id for alerts
   language STRING,                  -- BCP-47, e.g. "hi-IN"
-  source_project STRING             -- which clearance / CSR project funded it
+  source_project STRING,            -- which clearance / CSR project funded it
+  is_demo BOOL                      -- illustrative record (real geometry and satellite history)
 );
 
 CREATE TABLE IF NOT EXISTS reroot.plantation_timeseries (
@@ -89,9 +90,11 @@ CREATE TABLE IF NOT EXISTS reroot.alerts (
   type STRING,                      -- see contracts/alert_message.schema.json
   severity STRING,
   evidence JSON,
+  title STRING,
   message_en STRING,
-  message_local STRING,
-  delivered_at TIMESTAMP
+  message_local STRING,             -- caretaker's language, native script
+  audio_uri STRING,                 -- gs:// voice note (MP3) of message_local
+  delivered_at TIMESTAMP            -- set when pushed to Telegram
 );
 
 CREATE TABLE IF NOT EXISTS reroot.photo_verifications (

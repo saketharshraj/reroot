@@ -14,6 +14,8 @@ GCS_BUCKET = os.getenv("GCS_BUCKET", f"{PROJECT}-data")
 GEMINI_LOCATION = os.getenv("GEMINI_LOCATION", "global")
 GEMINI_MODEL_FAST = os.getenv("GEMINI_MODEL_FAST", "gemini-3-flash-preview")
 GEMINI_MODEL_PRO = os.getenv("GEMINI_MODEL_PRO", "gemini-3.1-pro-preview")
+# Short, grounded writing tasks don't need deep thinking; "low" is the fastest in practice.
+GEMINI_THINKING = os.getenv("GEMINI_THINKING", "low")
 
 PUBSUB_ALERTS_TOPIC = os.getenv("PUBSUB_ALERTS_TOPIC", "alerts")
 

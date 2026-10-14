@@ -1,5 +1,8 @@
 """Impact of clearing a footprint, computed live in Earth Engine (one round trip)."""
 
+import json
+from functools import lru_cache
+
 import ee
 
 from reroot.core import layers as L
@@ -11,7 +14,12 @@ CO2_PER_C = 44 / 12
 
 
 def assess(geojson: dict, year: int = 2025) -> dict:
-    g = ee.Geometry(geojson)
+    return _assess_cached(json.dumps(geojson, sort_keys=True), year)
+
+
+@lru_cache(maxsize=128)
+def _assess_cached(key: str, year: int) -> dict:
+    g = ee.Geometry(json.loads(key))
     dw = L.dynamic_world_mode(g.buffer(50), f"{year}-01-01", f"{year + 1}-01-01")
     land_cover = (ee.Image.pixelArea().divide(1e4).addBands(dw)
                   .reduceRegion(ee.Reducer.sum().group(1, "cls"), g, 10, maxPixels=1e9).get("groups"))
