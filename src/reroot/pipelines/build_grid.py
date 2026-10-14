@@ -130,18 +130,39 @@ def probe(region_name: str) -> None:
     print("embedding present:", all(v is not None for v in e), "| norm:", round(sum(v * v for v in e) ** 0.5, 3))
 
 
-def export(region_name: str, wait: bool = True) -> None:
+def _tiles(bbox: list[float], n: int) -> list[list[float]]:
+    w, so, e, no = bbox
+    dx, dy = (e - w) / n, (no - so) / n
+    return [[w + i * dx, so + j * dy, w + (i + 1) * dx, so + (j + 1) * dy] for i in range(n) for j in range(n)]
+
+
+def export(region_name: str, n: int = 4, wait: bool = True) -> None:
+    """Export the grid as n x n tiles appended to one BigQuery table.
+
+    A single sample() over the whole region (~80k rows x 165 columns) fails with "Computed
+    value is too large", so each tile is its own task. Tasks run in parallel on EE."""
     table = f"{config.PROJECT}.{config.BQ_DATASET}.grid_raw_{region_name}"
-    task = ee.batch.Export.table.toBigQuery(
-        collection=grid_features(region_name), description=f"grid_{region_name}", table=table, overwrite=True)
-    task.start()
-    print(f"started EE export {task.id} -> {table}")
+    bq().delete_table(table, not_found_ok=True)
+    tasks = []
+    for k, tile in enumerate(_tiles(config.REGIONS[region_name]["bbox"], n)):
+        t = ee.batch.Export.table.toBigQuery(
+            collection=grid_features(region_name, L.bbox(tile)),
+            description=f"grid_{region_name}_{k:02d}", table=table, append=True)
+        t.start()
+        tasks.append(t)
+    print(f"started {len(tasks)} EE export tasks -> {table}", flush=True)
     while wait:
-        st = task.status()
-        print(time.strftime("%H:%M:%S"), st["state"], st.get("error_message", ""), flush=True)
-        if st["state"] in ("COMPLETED", "FAILED", "CANCELLED"):
-            if st["state"] != "COMPLETED":
-                raise SystemExit(f"export {st['state']}: {st.get('error_message')}")
+        states = [t.status() for t in tasks]
+        counts = {}
+        for st in states:
+            counts[st["state"]] = counts.get(st["state"], 0) + 1
+        print(time.strftime("%H:%M:%S"), counts, flush=True)
+        failed = [st for st in states if st["state"] in ("FAILED", "CANCELLED")]
+        if failed:
+            raise SystemExit(f"export FAILED: {failed[0].get('description')}: {failed[0].get('error_message')}")
+        if all(st["state"] == "COMPLETED" for st in states):
+            n_rows = bq().get_table(table).num_rows
+            print(f"export COMPLETED: {n_rows} rows", flush=True)
             return
         time.sleep(30)
 
@@ -174,6 +195,7 @@ INSERT INTO {ds}.grid_cells (
 WITH raw AS (
   SELECT *, CAST(FLOOR(gx) AS INT64) AS ix, CAST(FLOOR(gy) AS INT64) AS iy
   FROM {ds}.grid_raw_{region_name} WHERE frac_trees IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY FLOOR(gx), FLOOR(gy)) = 1  -- tiles share edges
 ),
 -- UTM cells are slightly rotated in lon/lat; measure the grid's step vectors from neighbours
 -- so the rebuilt squares tile exactly.
