@@ -1,17 +1,23 @@
 """One way to get Google credentials, wherever the code runs.
 
 Order of preference:
-1. Application Default Credentials: the attached service account on Cloud Run, or
+1. GOOGLE_APPLICATION_CREDENTIALS_JSON: a service-account key as raw JSON or base64, for
+   hosts outside Google Cloud (Render). Set it as a secret env var, never commit it.
+2. Application Default Credentials: the attached service account on Cloud Run, or
    `gcloud auth application-default login` on a laptop.
-2. Dev fallback: borrow the gcloud CLI's access token. It expires after about an hour,
+3. Dev fallback: borrow the gcloud CLI's access token. It expires after about an hour,
    so long-running local servers should use ADC instead.
 """
 
+import base64
+import json
 import logging
+import os
 import subprocess
 
 import google.auth
 from google.auth.exceptions import DefaultCredentialsError
+from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
 
 log = logging.getLogger(__name__)
@@ -22,7 +28,18 @@ SCOPES = [
 ]
 
 
+def _key_from_env():
+    raw = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON", "").strip()
+    if not raw:
+        return None
+    info = json.loads(raw if raw.startswith("{") else base64.b64decode(raw))
+    return service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
+
+
 def get_credentials():
+    creds = _key_from_env()
+    if creds:
+        return creds
     try:
         creds, _ = google.auth.default(scopes=SCOPES)
         return creds

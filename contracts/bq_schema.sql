@@ -1,27 +1,48 @@
 -- BigQuery tables for ReRoot. Dataset `reroot`, location US (required for ST_REGIONSTATS
 -- against Earth Engine assets). Owners: pipelines/ writes grid_cells; api/ writes the rest.
 
--- One row per ~100 m grid cell in a region, with the features the scorer and model use.
+-- One row per 100 m (1 ha) grid cell in a region. Written by pipelines/build_grid.py.
+-- "_t0" columns describe TRAIN_YEAR (2018); unsuffixed columns describe CURRENT_YEAR (2025).
 CREATE TABLE IF NOT EXISTS reroot.grid_cells (
-  cell_id STRING NOT NULL,          -- "<region>_<row>_<col>"
+  cell_id STRING NOT NULL,          -- "<region>_<x>_<y>" (UTM grid index)
   region STRING NOT NULL,           -- e.g. "aravalli_ggn_fbd"
   geom GEOGRAPHY NOT NULL,          -- cell polygon
   centroid GEOGRAPHY NOT NULL,
-  lc_class STRING,                  -- Dynamic World mode class name for the feature year
-  tree_prob FLOAT64,                -- Dynamic World mean tree probability 0..1
-  ndvi_dry FLOAT64,                 -- dry-season NDVI
+  area_ha FLOAT64,
+  -- Dynamic World land-cover fractions of the cell (0..1), current year
+  frac_trees FLOAT64, frac_grass FLOAT64, frac_crops FLOAT64, frac_shrub FLOAT64,
+  frac_built FLOAT64, frac_bare FLOAT64, frac_water FLOAT64,
+  lc_class STRING,                  -- dominant class, current year
+  -- same, training year
+  frac_trees_t0 FLOAT64, frac_grass_t0 FLOAT64, frac_crops_t0 FLOAT64, frac_shrub_t0 FLOAT64,
+  frac_built_t0 FLOAT64, frac_bare_t0 FLOAT64, frac_water_t0 FLOAT64,
+  ndvi_dry FLOAT64,                 -- latest dry-season NDVI (Nov-Feb)
   slope_deg FLOAT64,
   elev_m FLOAT64,
-  rain_annual_mm FLOAT64,           -- CHIRPS mean annual, last 5 years
+  rain_annual_mm FLOAT64,           -- CHIRPS mean annual total over the last 6 years
   rain_cv FLOAT64,                  -- inter-annual coefficient of variation
-  soil_moisture FLOAT64,            -- dry-season mean, m3/m3
-  dist_forest_m FLOAT64,            -- distance to nearest tree-cover patch
-  dist_water_m FLOAT64,
-  pop_1km FLOAT64,                  -- people within 1 km (WorldPop)
-  is_protected BOOL,
-  embedding ARRAY<FLOAT64>,         -- AlphaEarth 64-d, feature year
-  label_tree_gain INT64,            -- 1 if non-tree -> tree between label years, else 0; NULL if not a training cell
-  feature_year INT64
+  soil_moisture FLOAT64,            -- ERA5-Land top layer, pre-monsoon (Mar-May) mean, m3/m3
+  dist_forest_m FLOAT64,            -- to nearest tree patch >= ~5 ha, current year (capped 3.84 km)
+  dist_forest_m_t0 FLOAT64,
+  dist_water_m FLOAT64,             -- to JRC surface water occurrence >= 50% (capped 3.84 km)
+  pop_1km FLOAT64,                  -- people within 1 km (WorldPop 2020)
+  is_protected BOOL,                -- inside a WDPA protected area
+  embedding ARRAY<FLOAT64>,         -- AlphaEarth 64-d, current year, re-normalised to unit length
+  embedding_t0 ARRAY<FLOAT64>,
+  label_tree_gain INT64,            -- 1 = non-tree at t0 became tree-dominant by current year; 0 = stayed non-tree; NULL = not a training cell
+  is_eval BOOL,                     -- spatial-block holdout for model evaluation
+  train_year INT64,
+  current_year INT64
+)
+CLUSTER BY region;
+
+-- Establishment likelihood per cell from the Vertex-registered BQML model.
+CREATE TABLE IF NOT EXISTS reroot.cell_predictions (
+  cell_id STRING NOT NULL,
+  region STRING NOT NULL,
+  ml_score FLOAT64,                 -- P(becomes tree cover within ~7 years | current conditions)
+  model STRING,
+  created_at TIMESTAMP
 )
 CLUSTER BY region;
 

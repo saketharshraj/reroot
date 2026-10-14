@@ -1,0 +1,18 @@
+# Render Blueprint for the ReRoot API (free plan, Docker).
+# Secrets marked sync:false are entered in the Render dashboard, never committed.
+services:
+  - type: web
+    name: reroot-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: GOOGLE_CLOUD_PROJECT
+        value: reroot-hack-2026
+      - key: SERVICE_MODULE
+        value: reroot.api.main:app
+      - key: GOOGLE_APPLICATION_CREDENTIALS_JSON
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false

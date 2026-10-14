@@ -28,7 +28,7 @@ caretakers as voice notes, photo verification).
 | `src/reroot/pipelines/` | EE feature extraction → `reroot.grid_cells`, model training | Batch, uses standard EE endpoint |
 | `src/reroot/api/` | FastAPI service, Gemini agent and its tools | Contract: `contracts/openapi.yaml` |
 | `src/reroot/notifier/` | Pub/Sub push consumer → Telegram, Cloud TTS voice notes | Contract: `contracts/alert_message.schema.json` |
-| `web/` | Frontend map app | Build against `fixtures/` until the API is live |
+| `web/` | Vite + React + MapLibre + Terra Draw frontend | `VITE_API_BASE_URL` picks the backend; deploys to Vercel |
 | `infra/` | setup and deploy scripts | |
 
 Contracts in `contracts/` are the source of truth between agents. Change a contract first,
@@ -46,10 +46,25 @@ then the code on both sides.
 - Gemini via `google-genai` with `vertexai=True` (see `core/clients.py`). Model IDs come from
   `core/config.py` env vars; don't hard-code them elsewhere.
 
+## Pipeline
+
+`src/reroot/pipelines/build_grid.py` builds the 100 m (1 ha) grid per region:
+Earth Engine export -> `reroot.grid_raw_<region>` -> `reroot.grid_cells` (contract schema) ->
+BQML boosted-tree `establishment_model` (registered in Vertex AI as `reroot_establishment`) ->
+`reroot.cell_predictions`. Training: features from 2018, label = became tree cover by 2025.
+Scoring: 2025 features. Holdout is spatial (2 km blocks) to avoid neighbour leakage.
+
+## Deploy
+
+See `DEPLOY.md`. Frontend: Vercel (root `web/`). Backend: Render (`render.yaml`, needs a
+service-account key in `GOOGLE_APPLICATION_CREDENTIALS_JSON`) or Cloud Run (`infra/deploy.sh`, no key).
+
 ## Commands
 
 ```
 uv run python scripts/smoke_test.py            # check EE, BigQuery, Gemini, Pub/Sub
 uv run python scripts/ee_what_you_can_get.py   # sample images/data → out/ee_demo/
 uv run uvicorn reroot.api.main:app --reload --port 8080
+uv run python -m reroot.pipelines.build_grid all   # rebuild grid + model for a region
+npm run dev --prefix web                           # frontend on :5173
 ```

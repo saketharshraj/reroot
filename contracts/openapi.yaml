@@ -15,6 +15,22 @@ paths:
       responses:
         "200": { description: OK }
 
+  /v1/regions:
+    get:
+      summary: Regions with a precomputed grid
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string }
+                    name: { type: string }
+                    bbox: { type: array, items: { type: number }, description: "[west, south, east, north]" }
+
   /v1/layers/{layer}:
     get:
       summary: XYZ tile URL for a map layer over a region
@@ -52,10 +68,14 @@ paths:
                 properties:
                   area_ha: { type: number }
                   tree_cover_ha: { type: number }
+                  forest_like_ha: { type: number, description: "trees + scrub, stand-in for notified forest land" }
                   land_cover_ha: { type: object, additionalProperties: { type: number } }
-                  canopy_height_mean_m: { type: number }
-                  carbon_t_est: { type: number }
-                  offset_required_ha: { type: number }
+                  canopy_height_mean_m: { type: [number, "null"] }
+                  agb_t: { type: [number, "null"], description: "above-ground biomass, GEDI L4B mean density x area" }
+                  carbon_t_est: { type: [number, "null"] }
+                  co2e_t_est: { type: [number, "null"] }
+                  offset_required_ha: { type: number, description: "1:1 on non-forest land" }
+                  offset_required_ha_degraded: { type: number, description: "2:1 on degraded forest land" }
                   sources: { type: array, items: { type: string } }
 
   /v1/sites/search:
@@ -72,7 +92,8 @@ paths:
                 area_ha_needed: { type: number }
                 radius_km: { type: number, default: 30 }
                 exclude: { type: array, items: { enum: [farmland, built, water, grassland, steep, protected] }, default: [farmland, built, water, grassland, steep] }
-                weights: { type: object, additionalProperties: { type: number }, description: "water, soil, establishment, connectivity, people" }
+                weights: { type: object, additionalProperties: { type: number }, description: "establishment, water, connectivity, people, terrain (0-5)" }
+                region: { type: string, default: aravalli_ggn_fbd }
       responses:
         "200":
           content:
@@ -84,6 +105,9 @@ paths:
                   sites:
                     type: array
                     items: { $ref: "#/components/schemas/Site" }
+                  area_ha_selected: { type: number }
+                  cells_considered: { type: integer }
+                  cells_excluded: { type: object, additionalProperties: { type: integer }, description: "reason -> cell count" }
 
   /v1/agent/chat:
     post:
@@ -134,10 +158,17 @@ components:
       type: object
       properties:
         site_id: { type: string }
+        rank: { type: integer }
         geometry: { $ref: "#/components/schemas/Geometry" }
+        centroid: { type: array, items: { type: number }, description: "[lon, lat]" }
         area_ha: { type: number }
-        final_score: { type: number }
-        breakdown: { type: object, additionalProperties: { type: number } }
-        species: { type: array, items: { type: string } }
+        final_score: { type: number, description: "0..1 weighted suitability" }
+        breakdown: { type: object, additionalProperties: { type: number }, description: "per-factor 0..1" }
+        conditions: { type: object, additionalProperties: { type: number }, description: "mean slope, rain, distances, fractions, ml_score" }
+        species:
+          type: array
+          items:
+            type: object
+            properties: { name: { type: string }, local: { type: string }, why: { type: string } }
         rationale: { type: string }
         sources: { type: array, items: { type: string } }

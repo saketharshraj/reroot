@@ -17,8 +17,19 @@ GEMINI_MODEL_PRO = os.getenv("GEMINI_MODEL_PRO", "gemini-3.1-pro-preview")
 
 PUBSUB_ALERTS_TOPIC = os.getenv("PUBSUB_ALERTS_TOPIC", "alerts")
 
-# Demo area: Aravalli belt between Gurugram and Faridabad (degraded scrub, mining and
-# development pressure, Mangar Bani sacred grove). [west, south, east, north]
-DEMO_AOI_BBOX = [77.05, 28.30, 77.35, 28.55]
+# Regions with a precomputed 100 m grid in BigQuery. bbox is [west, south, east, north];
+# utm is the metric CRS the grid is built in.
+REGIONS = {
+    # Aravalli belt between Gurugram and Faridabad: degraded scrub, mining and development
+    # pressure, Mangar Bani sacred grove, Asola Bhatti sanctuary.
+    "aravalli_ggn_fbd": {"bbox": [77.05, 28.30, 77.35, 28.55], "utm": "EPSG:32643"},
+}
+DEFAULT_REGION = "aravalli_ggn_fbd"
+DEMO_AOI_BBOX = REGIONS[DEFAULT_REGION]["bbox"]
 # A known intact forest patch inside the AOI, used as the "good site" reference.
 DEMO_REFERENCE_POINT = [77.180, 28.410]  # Mangar Bani
+
+# Years for the establishment model: features from TRAIN_YEAR, label = became tree cover
+# by CURRENT_YEAR. Candidates are scored with CURRENT_YEAR features.
+TRAIN_YEAR = 2018
+CURRENT_YEAR = 2025
