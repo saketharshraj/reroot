@@ -5,22 +5,21 @@ backends run the same Docker image.
 
 ## Backend on Render
 
-Render runs outside Google Cloud, so it needs a service-account key. Create one for the
-`app-runtime` account, copy it as base64, then delete the local file:
+Service `reroot-api` (free plan, Docker, Singapore) builds from `main` of
+github.com/saketharshraj/reroot. Render runs outside Google Cloud, so it needs a
+service-account key, mounted as a **Secret File**:
 
-```bash
-gcloud iam service-accounts keys create ~/reroot-render-key.json --iam-account=app-runtime@reroot-hack-2026.iam.gserviceaccount.com --project=reroot-hack-2026
-```
-```bash
-base64 -i ~/reroot-render-key.json | pbcopy && rm ~/reroot-render-key.json
-```
+1. Create the key and copy it to the clipboard (the local file is deleted right away):
+   ```bash
+   gcloud iam service-accounts keys create /tmp/gcp-key.json --iam-account=app-runtime@reroot-hack-2026.iam.gserviceaccount.com --project=reroot-hack-2026 && pbcopy < /tmp/gcp-key.json && rm /tmp/gcp-key.json
+   ```
+2. Render dashboard → `reroot-api` → **Environment** → **Secret Files** → Add: filename
+   `gcp-key.json`, paste the clipboard → Save, then **Manual Deploy → Deploy latest commit**.
+3. Open `https://<service>.onrender.com/health?deep=true`. Expect `"ee": true` and `"gemini": "pong"`.
+4. Once the Vercel URL exists, set `ALLOWED_ORIGINS` to it (comma-separate several).
 
-1. Push this repo to GitHub.
-2. Render → **New → Blueprint** → pick the repo. It reads `render.yaml`.
-3. When prompted, set:
-   - `GOOGLE_APPLICATION_CREDENTIALS_JSON`: paste the base64 key from your clipboard.
-   - `ALLOWED_ORIGINS`: your Vercel URL, e.g. `https://reroot.vercel.app` (comma-separate several).
-4. After deploy, open `https://<service>.onrender.com/health?deep=true`. Expect `"ee": true` and `"gemini": "pong"`.
+`GOOGLE_APPLICATION_CREDENTIALS=/etc/secrets/gcp-key.json` is already set on the service.
+(Alternatively put the key, raw or base64, in `GOOGLE_APPLICATION_CREDENTIALS_JSON`.)
 
 Free-plan caveats: the service sleeps after 15 minutes idle and takes about a minute to wake,
 and it has 512 MB of RAM. Open `/health` a few minutes before a demo. If the key leaks, delete

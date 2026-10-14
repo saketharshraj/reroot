@@ -5,11 +5,12 @@ Order of preference:
    hosts outside Google Cloud (Render). Set it as a secret env var, never commit it.
 2. Application Default Credentials: the attached service account on Cloud Run, or
    `gcloud auth application-default login` on a laptop.
-3. Dev fallback: borrow the gcloud CLI's access token. It expires after about an hour,
-   so long-running local servers should use ADC instead.
+3. Dev fallback: borrow the gcloud CLI's access token, re-fetched from gcloud whenever it
+   nears expiry, so long-running local jobs keep working.
 """
 
 import base64
+import datetime as dt
 import json
 import logging
 import os
@@ -45,6 +46,12 @@ def get_credentials():
         return creds
     except DefaultCredentialsError:
         pass
-    log.warning("No ADC found; falling back to the gcloud CLI token (valid ~1h).")
+    log.warning("No ADC found; falling back to the gcloud CLI token.")
+    return Credentials(token=None, refresh_handler=_gcloud_token)
+
+
+def _gcloud_token(request=None, scopes=None):
     token = subprocess.check_output(["gcloud", "auth", "print-access-token"], text=True).strip()
-    return Credentials(token)
+    # gcloud tokens last ~60 min; refresh well before that. google-auth wants naive UTC.
+    expiry = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None) + dt.timedelta(minutes=45)
+    return token, expiry
