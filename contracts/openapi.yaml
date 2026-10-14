@@ -149,6 +149,28 @@ paths:
                 lat: { type: number }
                 lon: { type: number }
 
+  /v1/plan:
+    post:
+      summary: Build the compensatory planting plan (body: project_geometry, assess, sites, profile)
+  /v1/plans/{plan_id}/map.jpg:
+    get:
+      summary: Satellite map of footprint (red) and sites (green)
+  /v1/plantations/{id}/check:
+    get:
+      summary: Health plus live weather risk (GFS 10-day forecast, GSMaP 14-day rain, SMAP soil moisture vs normal)
+  /v1/monitor/run:
+    post:
+      summary: Check plantations and publish alerts to Pub/Sub (body plantation_id optional)
+  /v1/alerts:
+    get:
+      summary: Latest alerts (title, message_en, message_local, evidence, has_audio)
+  /v1/alerts/{alert_id}/audio:
+    get:
+      summary: MP3 voice note in the caretaker's language
+  /pubsub/alerts:
+    post:
+      summary: Pub/Sub push endpoint (OIDC from pubsub-invoker). Processes one alert message.
+
 components:
   schemas:
     Geometry:

@@ -216,7 +216,7 @@ h1, h2, h3 { letter-spacing: -0.015em; margin: 0; }
 
 /* Plan document */
 .plan-wrap { position: absolute; inset: 0; overflow-y: auto; background: var(--bg); padding: 16px 24px 40px; }
-.plan-toolbar { position: sticky; top: 0; z-index: 2; display: flex; gap: 8px; max-width: 860px; margin: 0 auto 12px; }
+.plan-toolbar { position: sticky; top: -16px; z-index: 2; display: flex; gap: 8px; max-width: 860px; margin: 0 auto 12px; padding: 12px 0; background: var(--bg); }
 .plan { max-width: 860px; margin: 0 auto; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 40px 48px; }
 .plan-brand { display: inline-flex; align-items: center; gap: 6px; color: var(--brand); font-weight: 700; font-size: 13px; }
 .plan-head h1 { font-size: 28px; margin: 8px 0 4px; }

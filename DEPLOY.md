@@ -34,12 +34,19 @@ URL: https://api-152511810602.us-central1.run.app. No key needed: it runs as `ap
 Cloud Run is in the hackathon's judged tech list and stays inside the free tier at demo
 traffic, so it's a good primary with Render as the backup (or the other way round).
 
-## Frontend on Vercel
+## Frontends on Vercel (two projects, same repo)
 
-1. Vercel → **Add New → Project** → import the repo.
-2. **Root Directory:** `web`. Framework preset: Vite (auto-detected).
-3. Environment variable `VITE_API_BASE_URL` = your backend URL (Render or Cloud Run), no trailing slash.
-4. Deploy. Then add the Vercel URL to the backend's `ALLOWED_ORIGINS`.
+| Project | Root directory | Env vars |
+|---|---|---|
+| **ReRoot Studio** (the product, for judges and buyers) | `studio` | `VITE_API_BASE_URL`, `VITE_LAB_URL` (the Data Lab URL) |
+| **ReRoot Data Lab** (internal visualiser) | `web` | `VITE_API_BASE_URL` |
+
+1. Vercel → **Add New → Project** → import `saketharshraj/reroot`.
+2. Set **Root Directory** (`studio`, then repeat for `web`). Framework preset: Vite (auto-detected).
+3. `VITE_API_BASE_URL` = `https://api-152511810602.us-central1.run.app` (or the Render URL), no trailing slash.
+4. Deploy. If you lock CORS down, add both Vercel URLs to the backend's `ALLOWED_ORIGINS`.
+
+Alerts always flow through Cloud Run (Pub/Sub pushes there), even if Studio talks to Render.
 
 ## Local
 
