@@ -9,7 +9,7 @@ info:
 servers:
   - url: http://localhost:8080
 paths:
-  /healthz:
+  /health:
     get:
       summary: Liveness plus dependency checks
       responses:

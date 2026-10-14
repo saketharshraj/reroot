@@ -3,6 +3,7 @@
     uv run uvicorn reroot.api.main:app --reload --port 8080
 """
 
+from contextlib import asynccontextmanager
 from functools import lru_cache
 
 import ee
@@ -10,22 +11,28 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from reroot.core import config, layers as L
-from reroot.core.clients import init_ee
+from reroot.core.clients import gemini, init_ee
 
-app = FastAPI(title="ReRoot API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_ee(high_volume=True)
+    yield
+
+
+app = FastAPI(title="ReRoot API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 REGIONS = {"aravalli_ggn_fbd": config.DEMO_AOI_BBOX}
 
 
-@app.on_event("startup")
-def _startup() -> None:
-    init_ee(high_volume=True)
-
-
-@app.get("/healthz")
-def healthz():
-    return {"ok": True, "project": config.PROJECT, "ee": ee.Number(1).getInfo() == 1}
+@app.get("/health")  # not /healthz: Cloud Run reserves paths ending in "z"
+def health(deep: bool = False):
+    out = {"ok": True, "project": config.PROJECT, "ee": ee.Number(1).getInfo() == 1}
+    if deep:
+        r = gemini().models.generate_content(model=config.GEMINI_MODEL_FAST, contents="Reply with exactly: pong")
+        out["gemini"] = r.text.strip()
+    return out
 
 
 def _layer_image(layer: str, aoi: ee.Geometry) -> tuple[ee.Image, dict, list[str]]:

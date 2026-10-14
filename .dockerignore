@@ -1,0 +1,6 @@
+.venv
+out
+.git
+__pycache__
+node_modules
+web

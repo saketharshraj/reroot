@@ -16,6 +16,9 @@ caretakers as voice notes, photo verification).
 - Runtime identity on Cloud Run: `app-runtime@reroot-hack-2026.iam.gserviceaccount.com`.
   Never create or commit service-account key files.
 - Setup is `infra/setup.sh` (idempotent). Connectivity check is `scripts/smoke_test.py`.
+- Deploy with `infra/deploy.sh [service] [module]`. API is live at
+  https://api-152511810602.us-central1.run.app (`/health?deep=true` checks EE + Gemini).
+- Cloud Run reserves URL paths ending in `z` (`/healthz` 404s at Google's front end). Don't use them.
 
 ## Layout and ownership (one agent per directory)
 

@@ -8,7 +8,7 @@ CLOUD_SCORE_PLUS = "GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED"
 DYNAMIC_WORLD = "GOOGLE/DYNAMICWORLD/V1"
 EMBEDDINGS = "GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL"
 CHIRPS = "UCSB-CHG/CHIRPS/DAILY"
-DEM = "COPERNICUS/DEM/GLO30"
+DEM = "COPERNICUS/DEM/GLO30_2024_1"
 
 DW_CLASSES = ["water", "trees", "grass", "flooded_vegetation", "crops",
               "shrub_and_scrub", "built", "bare", "snow_and_ice"]

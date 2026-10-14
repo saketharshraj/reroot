@@ -52,7 +52,7 @@ fi
 
 say "BigQuery dataset (US) and tables"
 bq --project_id="$PROJECT" --location=US mk -d --description "ReRoot" "${PROJECT}:reroot" 2>/dev/null || echo "  dataset exists"
-bq --project_id="$PROJECT" --location=US query --use_legacy_sql=false --quiet < "$(dirname "$0")/../contracts/bq_schema.sql" \
+bq --project_id="$PROJECT" --location=US query --use_legacy_sql=false --quiet < "$(dirname "$0")/../contracts/bq_schema.sql" >/dev/null \
   && echo "  tables ensured"
 
 say "Pub/Sub topic"
