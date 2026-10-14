@@ -195,7 +195,7 @@ INSERT INTO {ds}.grid_cells (
 WITH raw AS (
   SELECT *, CAST(FLOOR(gx) AS INT64) AS ix, CAST(FLOOR(gy) AS INT64) AS iy
   FROM {ds}.grid_raw_{region_name} WHERE frac_trees IS NOT NULL
-  QUALIFY ROW_NUMBER() OVER (PARTITION BY FLOOR(gx), FLOOR(gy)) = 1  -- tiles share edges
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY CAST(FLOOR(gx) AS INT64), CAST(FLOOR(gy) AS INT64)) = 1  -- tiles share edges
 ),
 -- UTM cells are slightly rotated in lon/lat; measure the grid's step vectors from neighbours
 -- so the rebuilt squares tile exactly.
