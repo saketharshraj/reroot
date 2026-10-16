@@ -1,4 +1,4 @@
-import type { WaterCheck, WaterLedger, WaterMonth, WaterProject, WaterVerdict } from "./api";
+import type { WaterCheck, WaterLedger, WaterMonth, WaterProject, WaterSeason, WaterVerdict } from "./api";
 import { fmt } from "./geo";
 import { Icon, Sources } from "./ui";
 
@@ -63,6 +63,36 @@ function WaterChart({ series, intervention, outlineHa }: { series: WaterMonth[];
       ))}
       <path d={path("water_ha")} className="water-line" />
     </svg>
+  );
+}
+
+const MONTH_INITIAL = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
+
+/** The lake's own seasons: average rain per month, with the rainy, fullest and dry windows marked. */
+function SeasonStrip({ season }: { season: WaterSeason }) {
+  const max = Math.max(...season.climatology_mm, 1);
+  return (
+    <div className="season" aria-label={`Rains ${season.rain}, fullest ${season.peak}, dry season ${season.dry}`}>
+      <div className="season-bars">
+        {season.climatology_mm.map((v, i) => {
+          const m = i + 1;
+          const role = season.weak ? "" : season.rain_months.includes(m) ? "rain" : "";
+          return (
+            <div key={i} className="sb" title={`${Math.round(v)} mm`}>
+              <i className={`sb-bar ${role}`} style={{ height: `${Math.max(4, (v / max) * 100)}%` }} />
+              <i className={`sb-peak ${season.peak_months.includes(m) && !season.weak ? "on" : ""}`} />
+              <i className={`sb-dry ${season.dry_months.includes(m) ? "on" : ""}`} />
+              <span>{MONTH_INITIAL[i]}</span>
+            </div>
+          );
+        })}
+      </div>
+      <p className="muted small">
+        {season.weak
+          ? <>No clear rainy season here, so whole calendar years are compared; dry season = {season.dry}.</>
+          : <>Seasons from this lake's own rainfall: <b className="k-rain">rains {season.rain}</b>, <b className="k-peak">fullest {season.peak}</b>, <b className="k-dry">dry {season.dry}</b>.</>}
+      </p>
+    </div>
   );
 }
 
@@ -138,6 +168,7 @@ export function WaterPanel({ projects, ledger, selectedId, detail, onSelect, onA
           <div className="chart-key small">
             <i className="k water" /> Open water (radar) <i className="k optical" /> Optical water <i className="k green" /> Dense green cover <i className="k rain" /> Rain
           </div>
+          {ev.season && <SeasonStrip season={ev.season} />}
           <table className="wtable small">
             <thead><tr><th>Year</th><th>Peak</th><th>Rain-expected</th><th>Dry season</th><th>Rain</th></tr></thead>
             <tbody>
@@ -149,13 +180,13 @@ export function WaterPanel({ projects, ledger, selectedId, detail, onSelect, onA
                     <td className={h.peak_gain ? "gain" : ""}>{fmt(h.peak_ha, 1)}</td>
                     <td>{post && h.expected_peak_ha != null ? fmt(h.expected_peak_ha, 1) : "–"}</td>
                     <td className={h.dry_gain ? "gain" : ""}>{h.dry_ha != null ? fmt(h.dry_ha, 1) : "–"}</td>
-                    <td>{h.monsoon_rain_mm != null ? `${fmt(h.monsoon_rain_mm, 0)}` : "–"}</td>
+                    <td>{h.season_rain_mm != null ? `${fmt(h.season_rain_mm, 0)}` : "–"}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-          <p className="muted small">Hectares of open water. Peak = Aug–Nov, dry season = Mar–Jun, rain = Jun–Sep (mm).</p>
+          <p className="muted small">Hectares of open water. Peak = {ev.season?.peak ?? "Aug–Nov"}, dry season = {ev.season?.dry ?? "Mar–Jun"}, rain = {ev.season?.rain ?? "Jun–Sep"} (mm); years run {ev.season?.water_year ?? "Jul–Jun"}.</p>
           <div className="stats">
             <div className="stat"><div className="stat-label">Credited / claimed</div><div className="stat-value">{fmt(ev.credited_m3_yr, 0)}<small> / {m3(ev.claimed_m3_yr)}</small></div></div>
             <div className="stat"><div className="stat-label">Last 6 months</div><div className="stat-value">{fmt(ev.recent?.open_water_ha, 1)}<small> ha water · {fmt(ev.recent?.green_cover_ha, 1)} ha green</small></div></div>

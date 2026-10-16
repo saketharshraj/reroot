@@ -56,13 +56,14 @@ def main() -> None:
         geom = water.outline(lon, lat, search_m=search_m)
         oha = water.area_ha(geom)
         rows = water.series(geom)
-        ev = water.evaluate(rows, oha, when, depth, round(target * share, -3))
-        print(f"{pid} {name}: {oha} ha, {len(rows)} months -> {ev['verdict']}")
+        clim = water.climatology(lon, lat)
+        ev = water.evaluate(rows, oha, when, depth, round(target * share, -3), clim)
+        print(f"{pid} {name}: {oha} ha, {len(rows)} months, rains {ev['season']['rain']} -> {ev['verdict']}")
         projects.append({"project_id": pid, "name": name, "place": place, "lon": lon, "lat": lat,
                          "geojson": json.dumps(geom), "outline_ha": oha, "sponsor": SPONSOR,
                          "sponsor_target_m3_yr": round(target, -3), "intervention": what, "intervention_date": when,
                          "depth_m": depth, "claimed_m3_yr": round(target * share, -3), "notes": notes,
-                         "references": refs, "is_demo": True})
+                         "references": refs, "climatology_mm": clim["mm"], "climate_source": clim["source"], "is_demo": True})
         series_rows += [r | {"project_id": pid, "month": r["month"] + "-01"} for r in rows]
     for table, rows in ((water.PROJECTS_TABLE, projects), (water.SERIES_TABLE, series_rows)):
         cfg = bigquery.LoadJobConfig(schema=water.SCHEMA[table], write_disposition="WRITE_TRUNCATE")

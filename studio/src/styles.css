@@ -448,3 +448,13 @@ h1, h2, h3 { letter-spacing: -0.015em; margin: 0; }
 .btn-row { display: flex; gap: 6px; margin: 8px 0 4px; }
 .btn-row .btn { flex: 1; }
 .refs { display: flex; gap: 10px; }
+.season { margin: 6px 0 8px; }
+.season-bars { display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px; height: 54px; }
+.sb { display: grid; grid-template-rows: 1fr 3px 3px 12px; gap: 2px; align-items: end; text-align: center; }
+.sb-bar { display: block; background: #cbd5e1; border-radius: 2px 2px 0 0; align-self: end; }
+.sb-bar.rain { background: #64748b; }
+.sb-peak, .sb-dry { display: block; height: 3px; border-radius: 2px; }
+.sb-peak.on { background: #1d4ed8; } .sb-dry.on { background: #d97706; }
+.sb span { font-size: 9px; color: var(--muted); line-height: 12px; }
+.season p { margin: 4px 0 0; }
+.k-rain { color: #475569; } .k-peak { color: #1d4ed8; } .k-dry { color: #b45309; }

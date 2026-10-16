@@ -120,15 +120,21 @@ export interface WaterMonth {
 
 export interface WaterYear {
   year: number; label: string; peak_ha: number; dry_ha: number | null; wet_months: number; months_observed: number;
-  monsoon_rain_mm: number | null; green_dry_share: number | null; complete: boolean;
+  season_rain_mm: number | null; green_dry_share: number | null; complete: boolean;
   rain_vs_baseline?: number; expected_peak_ha?: number; excess_peak_ha?: number; dry_gain_ha?: number | null;
   peak_gain?: boolean; dry_gain?: boolean;
+}
+
+export interface WaterSeason {
+  water_year: string; rain: string; peak: string; dry: string; weak: boolean;
+  rain_months: number[]; peak_months: number[]; dry_months: number[]; climatology_mm: number[]; source: string | null;
 }
 
 export interface WaterEvaluation {
   verdict: WaterVerdict; verdict_text: string; note?: string | null; gain_years?: string[];
   intervention: string; outline_ha: number; years: WaterYear[]; baseline_years: string[]; post_years: string[];
-  baseline?: { peak_ha: number; max_peak_ha: number; dry_ha: number | null; monsoon_rain_mm: number | null; wet_months: number };
+  season?: WaterSeason;
+  baseline?: { peak_ha: number; max_peak_ha: number; dry_ha: number | null; season_rain_mm: number | null; wet_months: number };
   judged_year?: string; recent?: { months: [string, string] | null; open_water_ha: number | null; green_cover_ha: number | null };
   depth_m: number; claimed_m3_yr: number | null; credited_m3_yr: number; radar_optical_agreement?: number | null;
   assumptions?: string[];

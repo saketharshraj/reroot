@@ -83,9 +83,12 @@ Scoring: 2025 features. Holdout is spatial (2 km blocks) to avoid neighbour leak
   so mirrors are tried in turn). Cooling water uses latent-heat physics; assumptions are returned.
 - Replenishment verification: `api/water.py`. Lake outline = JRC GSW max extent near the point; monthly
   open water = Sentinel-1 VV < -16 dB inside it (2018-now), with Dynamic World water and Sentinel-2
-  NDVI > 0.5 green cover as the optical cross-check, and CHIRPS Jun-Sep rain. Hydrological years
-  (Jul-Jun) before vs after the intervention; the baseline peak is rain-scaled (elasticity 0.5,
-  capped at the pre-project max). Verdicts: verified / partial / at_risk / not_additional /
+  NDVI > 0.5 green cover as the optical cross-check, and rainy-season rain (CHIRPS; ERA5-Land beyond
+  50 deg). Seasons are automatic per lake: the wettest 4 months of its 1991-2020 rainfall climatology
+  set the rains, the water year starts the month after, the peak window is the next 4 months from
+  the second rainy month and the dry window the 4 months up to the next rains (Delhi = Jun-Sep rains,
+  Aug-Nov peak, Mar-Jun dry; no clear rainy season = calendar years). Water years before vs after the
+  intervention; the baseline peak is rain-scaled (elasticity 0.5, capped at the pre-project max). Verdicts: verified / partial / at_risk / not_additional /
   not_verified. Registry + series in BigQuery `water_projects` / `water_timeseries`
   (`uv run python -m reroot.pipelines.seed_water_projects`); ad-hoc lakes cached in GCS `water/series/`.
   Demo portfolio: sponsor and claims illustrative, satellite data real; Badkhal's revival is a real project.

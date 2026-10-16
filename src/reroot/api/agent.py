@@ -96,7 +96,7 @@ TOOLS = [
      "parameters": {"type": "object", "properties": {"plantation_id": {"type": "string"}}}},
     {"name": "list_water_projects", "description": "List the water replenishment projects (lake revival, pond desilting, wetland restoration) funded to offset a data centre's water use, each with its satellite verdict: verified, partial, at_risk, not_additional, not_verified.",
      "parameters": {"type": "object", "properties": {}}},
-    {"name": "verify_water_project", "description": "Check from space whether a water replenishment project really holds more water: monthly Sentinel-1 radar water area 2018-now inside the lake's outline, before vs after the intervention, scaled for monsoon rainfall, with an optical cross-check for weeds. Pass project_id for a registered project, or a place/coordinates plus the intervention month for any lake or pond in India.",
+    {"name": "verify_water_project", "description": "Check from space whether a water replenishment project really holds more water: monthly Sentinel-1 radar water area 2018-now inside the lake's outline, before vs after the intervention, with an optical cross-check for weeds. Seasons come from the lake's own 1991-2020 rainfall (rainy season, when it is fullest, its dry season), and each year is scaled for that season's rain, so it works in any climate. Pass project_id for a registered project, or a place in India / coordinates anywhere plus the intervention month.",
      "parameters": {"type": "object", "properties": {
          "project_id": {"type": "string", "description": "e.g. W1"},
          "place": {"type": "string", "description": "lake or pond name, for one not in the registry"},
@@ -168,7 +168,9 @@ How to work:
   Say the verdict plainly and why (peak vs rain-expected, dry-season retention, green cover). Credited
   volume is indicative: extra water area x an assumed depth; satellites can't see depth or water quality.
   Open water comes from Sentinel-1 radar and green cover from Sentinel-2 optical imagery; both measure
-  surface AREA, not water level or volume. Quote the evidence numbers. For at_risk, say it needs a field check (floating weeds vs a dried, grown-over bed) and offer a
+  surface AREA, not water level or volume. Quote the evidence numbers. Seasons are found automatically
+  from each lake's own rainfall (e.g. Delhi: rains Jun-Sep, fullest Aug-Nov, dry Mar-Jun; Chennai: rains
+  Sep-Dec, fullest Nov-Feb); say which windows were used. Frozen lakes and snowmelt aren't modelled. For at_risk, say it needs a field check (floating weeds vs a dried, grown-over bed) and offer a
   timelapse. The demo portfolio's sponsor and claimed volumes are illustrative; the satellite readings
   are real, and Badkhal Lake's revival is a real public project. For a lake not in the registry you need
   the month the works finished; ask if the user hasn't said.
@@ -488,8 +490,10 @@ class Tools:
                                        "claimed_m3_yr", "is_demo", "notes")}
         brief |= {k: ev.get(k) for k in ("verdict", "verdict_text", "note", "baseline_years", "baseline", "judged_year",
                                          "recent", "credited_m3_yr", "radar_optical_agreement", "assumptions")}
+        se = ev.get("season") or {}
+        brief["season"] = {k: se.get(k) for k in ("water_year", "rain", "peak", "dry", "weak", "source")}
         brief["post_years"] = [{k: h.get(k) for k in ("label", "peak_ha", "expected_peak_ha", "dry_ha", "dry_gain_ha",
-                                                      "wet_months", "monsoon_rain_mm", "rain_vs_baseline", "green_dry_share")}
+                                                      "wet_months", "season_rain_mm", "rain_vs_baseline", "green_dry_share")}
                                for h in ev["years"] if h["label"] in ev.get("post_years", [])]
         return brief, [{"type": "state", "patch": {"water_check": v}},
                        {"type": "ui", "view": "water", "focus": "water", "water_project_id": v.get("project_id") or "adhoc"}]
