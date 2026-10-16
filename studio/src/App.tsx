@@ -46,7 +46,7 @@ export default function App() {
   const abort = useRef<AbortController | null>(null);
   const [view, setView] = useState<View>(initial.view);
   const [layer, setLayer] = useState<LayerId>("true_colour");
-  const [tiles, setTiles] = useState<Partial<Record<LayerId, string>>>({});
+  const [tiles, setTiles] = useState<Record<string, string>>({});
   const [drawing, setDrawing] = useState(false);
   const [selectedSite, setSelectedSite] = useState<string | null>(initial.ws.sites?.[0]?.site_id ?? null);
   const [selectedPlantation, setSelectedPlantation] = useState<string | null>(null);
@@ -98,10 +98,23 @@ export default function App() {
     return () => { stop = true; clearInterval(id); };
   }, [loading]);
 
+  // Imagery follows the conversation: the loaded region around the current place, else a box around it.
+  const focusPoint: [number, number] | null = ws.datacenter?.site ?? (ws.place ? [ws.place.lon, ws.place.lat] : null);
+  const area = useMemo(() => {
+    if (!focusPoint) return { key: "default", spec: {} as { region?: string; bbox?: number[] } };
+    const [lon, lat] = focusPoint;
+    const r = regions.find((x) => x.status === "ready" && lon >= x.bbox[0] && lon <= x.bbox[2] && lat >= x.bbox[1] && lat <= x.bbox[3]);
+    if (r) return { key: r.id, spec: { region: r.id } };
+    const d = 0.12;  // ~25 km box
+    const bbox = [lon - d, lat - d, lon + d, lat + d];
+    return { key: bbox.map((x) => x.toFixed(2)).join(","), spec: { bbox } };
+  }, [focusPoint?.[0], focusPoint?.[1], regions]);
+  const tileKey = `${layer}@${area.key}` as LayerId;
+
   useEffect(() => {
-    if (tiles[layer]) return;
-    api.layer(layer).then((r) => setTiles((t) => ({ ...t, [layer]: r.tile_url }))).catch(() => {});
-  }, [layer]);
+    if (tiles[tileKey]) return;
+    api.layer(layer, area.spec).then((r) => setTiles((t) => ({ ...t, [tileKey]: r.tile_url }))).catch(() => {});
+  }, [layer, area.key]);
 
   useEffect(() => {
     if ((view === "monitor" || phone.open) && !ws.plantations?.length) {
@@ -327,7 +340,7 @@ export default function App() {
 
       <main className="canvas">
         <StudioMap
-          tileUrl={tiles[layer] ?? null}
+          tileUrl={tiles[tileKey] ?? tiles[layer] ?? null}
           opacity={0.92}
           project={view === "monitor" ? null : ws.project ?? null}
           sites={view === "monitor" ? [] : ws.sites ?? []}

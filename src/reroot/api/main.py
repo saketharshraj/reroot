@@ -141,17 +141,28 @@ _tiles: dict[tuple[str, str], tuple[float, dict]] = {}
 
 
 @app.get("/v1/layers/{layer}")
-def layer_tiles(layer: str, region: str = config.DEFAULT_REGION):
-    try:
-        spec = regions.spec(region)
-    except KeyError:
-        raise HTTPException(404, f"unknown region {region}")
-    hit = _tiles.get((layer, region))
+def layer_tiles(layer: str, region: str = config.DEFAULT_REGION, bbox: str | None = None):
+    """Tiles for a loaded region, or for any box (w,s,e,n, at most ~0.5 degrees across) so the map
+    shows imagery wherever the conversation goes."""
+    if bbox:
+        try:
+            box = [round(float(x), 3) for x in bbox.split(",")]
+            assert len(box) == 4 and 0 < box[2] - box[0] <= 0.5 and 0 < box[3] - box[1] <= 0.5
+        except (ValueError, AssertionError):
+            raise HTTPException(422, "bbox must be w,s,e,n and at most 0.5 degrees across")
+        key = (layer, ",".join(map(str, box)))
+    else:
+        try:
+            box = regions.spec(region)["bbox"]
+        except KeyError:
+            raise HTTPException(404, f"unknown region {region}")
+        key = (layer, region)
+    hit = _tiles.get(key)
     if hit and time.time() - hit[0] < TILE_TTL_S:
         return hit[1]
-    img, vis, sources = _layer_image(layer, L.bbox(spec["bbox"]))
+    img, vis, sources = _layer_image(layer, L.bbox(box))
     out = {"tile_url": img.getMapId(vis)["tile_fetcher"].url_format, "legend": vis, "sources": sources}
-    _tiles[(layer, region)] = (time.time(), out)
+    _tiles[key] = (time.time(), out)
     return out
 
 

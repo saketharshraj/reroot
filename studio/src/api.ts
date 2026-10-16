@@ -166,7 +166,8 @@ export async function downloadMedia(m: Media) {
 
 export const api = {
   regions: () => json<RegionInfo[]>("/v1/regions"),
-  layer: (layer: LayerId) => json<{ tile_url: string }>(`/v1/layers/${layer}`),
+  layer: (layer: LayerId, area?: { region?: string; bbox?: number[] }) =>
+    json<{ tile_url: string }>(`/v1/layers/${layer}${area?.bbox ? `?bbox=${area.bbox.map((x) => x.toFixed(3)).join(",")}` : area?.region ? `?region=${area.region}` : ""}`),
   plantations: () => json<Plantation[]>("/v1/plantations"),
   timeseries: (id: string) => json<{ date: string; ndvi: number | null; expected: number | null }[]>(`/v1/plantations/${id}/timeseries`),
   alerts: (plantationId?: string) => json<Alert[]>(`/v1/alerts${plantationId ? `?plantation_id=${plantationId}` : ""}`),
