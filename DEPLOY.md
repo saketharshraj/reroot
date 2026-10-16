@@ -1,5 +1,14 @@
 # Deploying ReRoot
 
+## Live
+
+| What | URL | Deploys |
+|---|---|---|
+| ReRoot Studio (product) | https://reroot-studio-alpha.vercel.app | `vercel deploy --prod` in `studio/` |
+| Data Lab (internal) | https://reroot-lab.vercel.app | `vercel deploy --prod` in `web/` |
+| API on Cloud Run (primary) | https://api-152511810602.us-central1.run.app | `infra/deploy.sh` |
+| API on Render (backup) | https://reroot-api.onrender.com | auto on push to `main` (needs the key, below) |
+
 Frontend on **Vercel**, backend on **Render** (free) or **Cloud Run** (already live). Both
 backends run the same Docker image.
 
