@@ -46,10 +46,19 @@ def _warm_up() -> None:
         logging.getLogger(__name__).exception("warm-up failed")
 
 
+_startup_error: str | None = None
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    init_ee(high_volume=True)
-    threading.Thread(target=_warm_up, daemon=True).start()
+    global _startup_error
+    try:
+        init_ee(high_volume=True)
+        if os.getenv("WARM_UP", "1") == "1":
+            threading.Thread(target=_warm_up, daemon=True).start()
+    except Exception as e:  # noqa: BLE001 - keep serving so /health can explain what's wrong
+        _startup_error = f"Google credentials/Earth Engine init failed: {e}"
+        logging.getLogger(__name__).exception("startup failed")
     yield
 
 
@@ -65,7 +74,9 @@ app.add_middleware(
 @app.get("/health")  # not /healthz: Cloud Run reserves paths ending in "z"
 def health(deep: bool = False):
     """Cheap by default (hosts poll it); ?deep=true also round-trips Earth Engine and Gemini."""
-    out = {"ok": True, "project": config.PROJECT}
+    out = {"ok": _startup_error is None, "project": config.PROJECT}
+    if _startup_error:
+        return {**out, "error": _startup_error}
     if deep:
         out["ee"] = ee.Number(1).getInfo() == 1
         r = gemini().models.generate_content(model=config.GEMINI_MODEL_FAST, contents="Reply with exactly: pong")
