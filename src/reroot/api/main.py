@@ -76,7 +76,14 @@ def health(deep: bool = False):
     """Cheap by default (hosts poll it); ?deep=true also round-trips Earth Engine and Gemini."""
     out = {"ok": _startup_error is None, "project": config.PROJECT}
     if _startup_error:
-        return {**out, "error": _startup_error}
+        from reroot.core import auth
+        path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        diag = {"adc_error": auth.LAST_ADC_ERROR, "credentials_env_json_set": bool(os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON"))}
+        if path:  # existence and size only, never contents
+            diag |= {"credentials_file": path, "exists": os.path.exists(path),
+                     "size_bytes": os.path.getsize(path) if os.path.exists(path) else None,
+                     "secrets_dir": sorted(os.listdir("/etc/secrets")) if os.path.isdir("/etc/secrets") else None}
+        return {**out, "error": _startup_error, "diagnostics": diag}
     if deep:
         out["ee"] = ee.Number(1).getInfo() == 1
         r = gemini().models.generate_content(model=config.GEMINI_MODEL_FAST, contents="Reply with exactly: pong")

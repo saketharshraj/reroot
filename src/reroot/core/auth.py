@@ -24,6 +24,8 @@ from google.oauth2.credentials import Credentials
 
 log = logging.getLogger(__name__)
 
+LAST_ADC_ERROR: str | None = None  # why Application Default Credentials failed, for /health
+
 SCOPES = [
     "https://www.googleapis.com/auth/cloud-platform",
     "https://www.googleapis.com/auth/earthengine",
@@ -48,8 +50,9 @@ def get_credentials():
         if isinstance(creds, Credentials) and not creds.quota_project_id:
             creds = creds.with_quota_project(_project())
         return creds
-    except DefaultCredentialsError:
-        pass
+    except DefaultCredentialsError as e:
+        global LAST_ADC_ERROR
+        LAST_ADC_ERROR = str(e)[:300]
     log.warning("No ADC found; falling back to the gcloud CLI token.")
     return GcloudCredentials(_project())
 
