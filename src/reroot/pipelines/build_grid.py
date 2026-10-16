@@ -6,15 +6,18 @@
     uv run python -m reroot.pipelines.build_grid train        # BQML boosted trees, registered in Vertex AI
     uv run python -m reroot.pipelines.build_grid predict      # -> reroot.cell_predictions
     uv run python -m reroot.pipelines.build_grid all          # export (waits) + transform + train + predict
+    uv run python -m reroot.pipelines.build_grid build --region X   # new region: export + transform + predict
+                                                              # + basemap, reporting progress (no retraining)
 """
 
 import argparse
 import json
+import math
 import time
 
 import ee
 
-from reroot.core import config, layers as L
+from reroot.core import config, layers as L, regions
 from reroot.core.clients import bq, init_ee
 
 # Dynamic World label values for the classes we keep as per-cell fractions.
@@ -37,7 +40,7 @@ def _dist_to_forest(region: ee.Geometry, year: int, proj10, proj30) -> ee.Image:
 
 
 def feature_image(region_name: str) -> ee.Image:
-    spec = config.REGIONS[region_name]
+    spec = regions.spec(region_name)
     aoi = L.bbox(spec["bbox"])
     buf = aoi.buffer(4000)  # so distances near the edge see features outside the box
     proj10 = ee.Projection(spec["utm"]).atScale(10)
@@ -107,7 +110,7 @@ def grid_features(region_name: str, geometry: ee.Geometry | None = None) -> ee.F
     Uses image.sample, which Earth Engine tiles and streams. Building all cell polygons with
     coveringGrid + reduceRegions fails with "Computed value is too large" at ~80k cells; the
     squares are rebuilt in BigQuery instead (see transform)."""
-    spec = config.REGIONS[region_name]
+    spec = regions.spec(region_name)
     proj100 = ee.Projection(spec["utm"]).atScale(100)
     area = geometry or L.bbox(spec["bbox"])
     index = ee.Image.pixelCoordinates(proj100).rename(["gx", "gy"]).reproject(proj100)  # cell centres, x.5
@@ -136,15 +139,23 @@ def _tiles(bbox: list[float], n: int) -> list[list[float]]:
     return [[w + i * dx, so + j * dy, w + (i + 1) * dx, so + (j + 1) * dy] for i in range(n) for j in range(n)]
 
 
-def export(region_name: str, n: int = 4, wait: bool = True) -> None:
+def _tile_count(bbox: list[float]) -> int:
+    w, so, e, no = bbox
+    km = max((e - w) * 111.32 * math.cos(math.radians((so + no) / 2)), (no - so) * 111.32)
+    return max(1, math.ceil(km / 7.5))  # ~7.5 km tiles stay well under EE's value-size limit
+
+
+def export(region_name: str, n: int | None = None, wait: bool = True) -> None:
     """Export the grid as n x n tiles appended to one BigQuery table.
 
     A single sample() over the whole region (~80k rows x 165 columns) fails with "Computed
     value is too large", so each tile is its own task. Tasks run in parallel on EE."""
     table = f"{config.PROJECT}.{config.BQ_DATASET}.grid_raw_{region_name}"
     bq().delete_table(table, not_found_ok=True)
+    bbox = regions.spec(region_name)["bbox"]
+    n = n or _tile_count(bbox)
     tasks = []
-    for k, tile in enumerate(_tiles(config.REGIONS[region_name]["bbox"], n)):
+    for k, tile in enumerate(_tiles(bbox, n)):
         t = ee.batch.Export.table.toBigQuery(
             collection=grid_features(region_name, L.bbox(tile)),
             description=f"grid_{region_name}_{k:02d}", table=table, append=True)
@@ -157,6 +168,9 @@ def export(region_name: str, n: int = 4, wait: bool = True) -> None:
         for st in states:
             counts[st["state"]] = counts.get(st["state"], 0) + 1
         print(time.strftime("%H:%M:%S"), counts, flush=True)
+        done = counts.get("COMPLETED", 0)
+        regions.set_status(region_name, "exporting", 0.05 + 0.65 * done / len(tasks),
+                           f"Exporting satellite features from Earth Engine ({done}/{len(tasks)} tiles)")
         failed = [st for st in states if st["state"] in ("FAILED", "CANCELLED")]
         if failed:
             raise SystemExit(f"export FAILED: {failed[0].get('description')}: {failed[0].get('error_message')}")
@@ -293,13 +307,34 @@ FROM ML.PREDICT(MODEL {ds}.establishment_model, (SELECT * FROM {ds}.v_score WHER
     print(f"cell_predictions[{region_name}]: {row.n} cells, mean {row.mean}, p90 {row.p90}")
 
 
+def build(region_name: str) -> None:
+    """Everything a newly requested region needs, reusing the trained model."""
+    from reroot.api import basemap
+    try:
+        regions.set_status(region_name, "exporting", 0.05, "Exporting satellite features from Earth Engine")
+        export(region_name)
+        regions.set_status(region_name, "building", 0.75, "Building the 1-hectare grid in BigQuery")
+        transform(region_name)
+        regions.set_status(region_name, "scoring", 0.85, "Scoring survival odds with the Vertex AI model")
+        predict(region_name)
+        regions.set_status(region_name, "rendering", 0.93, "Rendering the satellite basemap")
+        basemap.render(region_name)
+        regions.set_status(region_name, "ready", 1.0, "Ready")
+    except BaseException as e:  # noqa: BLE001 - report every failure, including SystemExit from export
+        regions.set_status(region_name, "failed", 0, f"Failed: {e}")
+        raise
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("stage", choices=["probe", "export", "transform", "train", "predict", "all"])
+    ap.add_argument("stage", choices=["probe", "export", "transform", "train", "predict", "all", "build"])
     ap.add_argument("--region", default=config.DEFAULT_REGION)
     a = ap.parse_args()
-    if a.stage in ("probe", "export", "all"):
+    if a.stage in ("probe", "export", "all", "build"):
         init_ee()
+    if a.stage == "build":
+        build(a.region)
+        return
     if a.stage == "probe":
         probe(a.region)
     if a.stage in ("export", "all"):

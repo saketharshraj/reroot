@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { API_BASE, type Plan, type Workspace } from "./api";
+import { API_BASE, downloadMedia, mediaUrl, type Media, type Plan, type Workspace } from "./api";
 import { fmt } from "./geo";
 import { Icon } from "./ui";
 
@@ -134,13 +134,26 @@ export function PlanEmpty({ ws, busy, onAsk }: { ws: Workspace; busy: boolean; o
   );
 }
 
-export function MediaCard({ title, url, years, onClose }: { title: string; url: string; years: [number, number]; onClose: () => void }) {
+export function MediaCard({ media, onClose }: { media: Media; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const zoomed = media.metres_per_pixel != null && media.native_resolution_m != null && media.metres_per_pixel < media.native_resolution_m;
   return (
     <aside className="media-card" aria-label="Satellite timelapse">
-      <header><Icon name="film" size={14} /><b>{title}</b><span className="muted small">{years[0]}–{years[1]} · dry season</span>
+      <header><Icon name="film" size={14} /><b>{media.title}</b>
+        <span className="muted small">{media.years[0]}–{media.years[1]} · {media.season ?? "Jan–Apr"}{media.layer === "ndvi" ? " · vegetation" : ""}</span>
         <button className="x" onClick={onClose} aria-label="Close timelapse">×</button></header>
-      <img src={url.startsWith("/") ? API_BASE + url : url} alt={`Satellite timelapse of ${title}, ${years[0]} to ${years[1]}`} />
-      <footer className="muted small">Sentinel-2 via Earth Engine · one frame per year</footer>
+      <img src={mediaUrl(media.url)} alt={`Satellite timelapse of ${media.title}, ${media.years[0]} to ${media.years[1]}`} />
+      <footer>
+        <span className="muted small">Sentinel-2 · {media.native_resolution_m ?? 10} m pixels{zoomed ? " (enlarged)" : ""}</span>
+        <span className="spacer" />
+        <button className="btn ghost sm" onClick={async () => { await navigator.clipboard.writeText(mediaUrl(media.url)); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>
+          {copied ? "Copied" : "Copy link"}
+        </button>
+        <button className="btn primary sm" disabled={busy} onClick={async () => { setBusy(true); try { await downloadMedia(media); } finally { setBusy(false); } }}>
+          <Icon name="download" size={13} /> {busy ? "Saving…" : "Download GIF"}
+        </button>
+      </footer>
     </aside>
   );
 }

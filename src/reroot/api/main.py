@@ -24,10 +24,9 @@ from reroot.api import monitor as monitor_mod
 from reroot.api import plan as plan_mod
 from reroot.api import sites as sites_mod
 from reroot.api import verify as verify_mod
-from reroot.core import config, layers as L
+from reroot.core import config, layers as L, regions
 from reroot.core.clients import gemini, init_ee
 
-REGION_NAMES = {"aravalli_ggn_fbd": "Aravalli belt · Gurugram–Faridabad"}
 TILE_TTL_S = 3 * 3600  # EE map IDs expire; refresh well before they do
 
 
@@ -96,8 +95,25 @@ def health(deep: bool = False):
 
 
 @app.get("/v1/regions")
-def regions():
-    return [{"id": k, "name": REGION_NAMES.get(k, k), "bbox": v["bbox"]} for k, v in config.REGIONS.items()]
+def list_regions():
+    return [{"id": r["region_id"], **regions.public(r)} for r in regions.all_regions().values()]
+
+
+class RegionRequest(BaseModel):
+    name: str
+    lon: float
+    lat: float
+    size_km: float = 12
+
+
+@app.post("/v1/regions")
+def create_region(req: RegionRequest):
+    existing = regions.containing(req.lon, req.lat, ready_only=False)
+    if existing:
+        return {"id": existing, **regions.public(regions.spec(existing)), "already_exists": True}
+    r = regions.create(req.name, req.lon, req.lat, req.size_km)
+    regions.start_build(r["region_id"])
+    return {"id": r["region_id"], **regions.public(regions.spec(r["region_id"]))}
 
 
 def _layer_image(layer: str, aoi: ee.Geometry) -> tuple[ee.Image, dict, list[str]]:
@@ -123,12 +139,14 @@ _tiles: dict[tuple[str, str], tuple[float, dict]] = {}
 
 @app.get("/v1/layers/{layer}")
 def layer_tiles(layer: str, region: str = config.DEFAULT_REGION):
-    if region not in config.REGIONS:
+    try:
+        spec = regions.spec(region)
+    except KeyError:
         raise HTTPException(404, f"unknown region {region}")
     hit = _tiles.get((layer, region))
     if hit and time.time() - hit[0] < TILE_TTL_S:
         return hit[1]
-    img, vis, sources = _layer_image(layer, L.bbox(config.REGIONS[region]["bbox"]))
+    img, vis, sources = _layer_image(layer, L.bbox(spec["bbox"]))
     out = {"tile_url": img.getMapId(vis)["tile_fetcher"].url_format, "legend": vis, "sources": sources}
     _tiles[(layer, region)] = (time.time(), out)
     return out
@@ -156,7 +174,10 @@ class SiteSearchRequest(BaseModel):
 
 @app.post("/v1/sites/search")
 def sites_search(req: SiteSearchRequest):
-    if req.region not in config.REGIONS:
+    try:
+        if regions.spec(req.region)["status"] != "ready":
+            raise HTTPException(409, f"region {req.region} is still loading")
+    except KeyError:
         raise HTTPException(404, f"unknown region {req.region}")
     return sites_mod.search(req.model_dump())
 
@@ -200,12 +221,15 @@ def plan_map(plan_id: str):
 
 
 @app.get("/v1/media/{name}")
-def media(name: str):
+def media(name: str, download: bool = False, filename: str | None = None):
     if not name.replace(".", "").replace("-", "").isalnum():
         raise HTTPException(400, "bad name")
     data = alerts_mod._bucket().blob(f"media/{name}").download_as_bytes()
-    return Response(data, media_type="image/gif" if name.endswith(".gif") else "application/octet-stream",
-                    headers={"Cache-Control": "public, max-age=86400"})
+    headers = {"Cache-Control": "public, max-age=86400"}
+    if download:
+        safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in (filename or f"reroot-{name}"))
+        headers["Content-Disposition"] = f'attachment; filename="{safe}"'
+    return Response(data, media_type="image/gif" if name.endswith(".gif") else "application/octet-stream", headers=headers)
 
 
 @app.get("/v1/plantations")

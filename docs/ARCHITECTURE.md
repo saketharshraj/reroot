@@ -26,7 +26,7 @@ caretakers as voice notes, photo verification).
 |---|---|---|
 | `src/reroot/core/` | config, credentials, clients, reusable EE layers | Shared; change with care |
 | `src/reroot/pipelines/` | EE feature extraction → `reroot.grid_cells`, model training | Batch, uses standard EE endpoint |
-| `src/reroot/api/` | FastAPI service. `agent.py` (Gemini + 16 tools, SSE), `assess`, `sites`, `plan`, `monitor`, `alerts`, `verify`, `basemap`, `policy` (trusted official sources), `explore` (place search, area analysis, timelapse) | Contract: `contracts/openapi.yaml` |
+| `src/reroot/api/` | FastAPI service. `agent.py` (Gemini + 19 tools, SSE), `assess`, `sites`, `plan`, `monitor`, `alerts`, `verify`, `basemap`, `policy` (trusted official sources), `explore` (place search, area analysis, timelapse), `datacenter` (water-positive siting + resource loops) | Contract: `contracts/openapi.yaml` |
 | `src/reroot/notifier/` | Pub/Sub push consumer → Telegram, Cloud TTS voice notes | Contract: `contracts/alert_message.schema.json` |
 | `studio/` | **ReRoot Studio**: the product. Chat-first (Gemini agent) + map canvas, plan doc, monitor, caretaker phone | `VITE_API_BASE_URL`, `VITE_LAB_URL`; Vercel project #1 |
 | `web/` | **Data Lab**: internal visualiser of layers, assess, site search | `VITE_API_BASE_URL`; Vercel project #2 |
@@ -73,6 +73,14 @@ Scoring: 2025 features. Holdout is spatial (2 km blocks) to avoid neighbour leak
 - Replies link entities as `#site-N`, `#plantation-ID`, `#place-lon,lat`, `#layer-ID`, `#view-plan`,
   `#media`, `#area`; Studio turns these into map actions (unknown links are sent as a question).
 - Studio keeps chat history in the browser's localStorage only (`studio/src/history.ts`).
+- Regions: `core/regions.py` = built-in `config.REGIONS` + on-demand rows in BigQuery `reroot.regions`.
+  `POST /v1/regions` (or the `load_region` tool) runs Cloud Run Job `region-builder`
+  (`build_grid build --region X`: export, grid, score with the existing model, basemap) and reports
+  progress; Studio polls `/v1/regions` and announces when ready. Satellite tools work anywhere;
+  site search / planting potential need a ready region.
+- Data centres: `api/datacenter.py` combines WRI Aqueduct 4.0, GRACE, ERA5-Land, CHIRPS and
+  OpenStreetMap partners (cached per region in GCS `symbiosis/region/<id>.json`; Overpass is flaky,
+  so mirrors are tried in turn). Cooling water uses latent-heat physics; assumptions are returned.
 
 ## Deploy
 

@@ -1,4 +1,4 @@
-import type { AreaAnalysis, Assess, Site, Workspace } from "./api";
+import type { AreaAnalysis, Assess, DataCentre, Site, Workspace } from "./api";
 import { fmt } from "./geo";
 import { Bar, Sources, Stat } from "./ui";
 
@@ -77,6 +77,71 @@ function SitesCard({ sites, meta, need, selected, onSelect }: {
   );
 }
 
+const COOLING_LABEL: Record<string, string> = { evaporative: "Evaporative towers", hybrid: "Hybrid (dry below 25 °C)", closed_loop: "Closed loop" };
+const FLOW_LABEL: Record<string, [string, string]> = {
+  reclaimed_water: ["Water in", "#0284c7"], clean_power: ["Power in", "#ca8a04"], heat: ["Heat out", "#ea580c"], replenish: ["Replenish", "#16a34a"],
+};
+const ml = (m3: number) => fmt(m3 / 1000, 0);
+
+function riskTone(label: unknown) {
+  const t = String(label ?? "");
+  return /extremely high|high/i.test(t) ? "bad" : /medium/i.test(t) ? "warn" : "ok";
+}
+
+function DataCentreCard({ d }: { d: DataCentre }) {
+  const risk: [string, unknown][] = [
+    ["Water stress", d.water_risk.baseline_water_stress], ["Depletion", d.water_risk.water_depletion],
+    ["Groundwater decline", d.water_risk.groundwater_table_decline], ["Drought risk", d.water_risk.drought_risk],
+  ];
+  const max = Math.max(...Object.values(d.water_m3_per_yr));
+  const c = d.chosen;
+  const pondsCover = c.replenishment_covered_by_ponds;
+  return (
+    <section className="card">
+      <header className="card-head"><span className="eyebrow violet">Data centre · water-positive check</span>
+        <h3>{d.it_load_mw} MW near {d.name ?? "this site"}</h3></header>
+      <div className="risk-grid">
+        {risk.map(([k, v]) => <div key={k} className={`risk ${riskTone(v)}`}><span>{k}</span><b>{String(v ?? "–").replace(/\s*\(.*\)/, "")}</b></div>)}
+      </div>
+      <p className="muted small">
+        Groundwater trend {d.water_risk.grace_groundwater_trend_cm_per_yr ?? "–"} cm/yr (GRACE) · {fmt(Number(d.water_risk.rain_mm_per_yr))} mm rain ·
+        {" "}{fmt(d.climate.hours_above_25c)} h/yr above 25 °C
+      </p>
+      <h4 className="mini-h">Cooling water a year</h4>
+      {Object.entries(d.water_m3_per_yr).map(([k, v]) => (
+        <div key={k} className={`wbar ${k === d.cooling ? "on" : ""}`}>
+          <span>{COOLING_LABEL[k] ?? k}</span>
+          <span className="wbar-track"><i style={{ width: `${Math.max(2, (v / max) * 100)}%` }} /></span>
+          <b>{ml(v)} ML</b>
+        </div>
+      ))}
+      <div className="loop">
+        <div><span>Total</span><b>{ml(c.total_m3)} ML</b></div>
+        <div className="blue"><span>From treated wastewater</span><b>{ml(c.reclaimed_m3)} ML</b></div>
+        <div><span>Freshwater</span><b>{ml(c.freshwater_m3)} ML</b></div>
+        <div className="green"><span>Replenish (120%)</span><b>{ml(c.replenishment_target_m3)} ML</b></div>
+      </div>
+      <h4 className="mini-h">The loop</h4>
+      <ul className="flows">
+        {d.flows.map((f, i) => {
+          const other = (typeof f.from === "string" ? f.to : f.from) as { name: string; distance_km: number };
+          const [tag, color] = FLOW_LABEL[f.kind] ?? [f.kind, "#64748b"];
+          return <li key={i}><em style={{ background: color }}>{tag}</em><b>{other.name}</b><span>{other.distance_km} km · {f.label}</span></li>;
+        })}
+        {!d.flows.some((f) => f.kind === "heat") && <li className="muted small">No greenhouses, cold storage or industrial estates within 5 km: plan co-located heat users (e.g. cold storage for farmers).</li>}
+      </ul>
+      <p className="muted small">
+        {pondsCover && c.ponds_to_rejuvenate.length
+          ? `Rejuvenating ${c.ponds_to_rejuvenate.map((p) => `${p.name} (${p.area_ha} ha)`).join(", ")} could cover the replenishment target.`
+          : `${c.ponds_nearby_count} ponds nearby; ponds alone don't cover the target.`}
+        {c.plantable_ha_nearby != null && ` ${fmt(c.plantable_ha_nearby)} ha of plantable land within 10 km for watershed restoration.`}
+      </p>
+      <details className="assume"><summary>Assumptions</summary><ul>{d.assumptions.map((a) => <li key={a}>{a}</li>)}</ul></details>
+      <Sources items={d.sources} />
+    </section>
+  );
+}
+
 function AreaCard({ a }: { a: AreaAnalysis }) {
   const lc = Object.entries(a.land_cover_pct).filter(([, v]) => v >= 0.5);
   return (
@@ -96,9 +161,15 @@ function AreaCard({ a }: { a: AreaAnalysis }) {
 }
 
 export function ResultsPanel({ ws, selected, onSelect }: { ws: Workspace; selected: string | null; onSelect: (id: string) => void }) {
-  const area = ws.analysis ? <AreaCard a={ws.analysis} /> : null;
+  const area = (
+    <>
+      {ws.datacenter ? <DataCentreCard d={ws.datacenter} /> : null}
+      {ws.analysis ? <AreaCard a={ws.analysis} /> : null}
+    </>
+  );
+  const hasExtra = !!(ws.datacenter || ws.analysis);
   if (!ws.assess && !ws.sites?.length) {
-    if (area) return area;
+    if (hasExtra) return area;
     return (
       <section className="card hint">
         <h3>Start with a footprint</h3>

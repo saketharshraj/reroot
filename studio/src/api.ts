@@ -75,7 +75,36 @@ export interface AreaAnalysis {
   ndvi_dry_mean: number | null; sources: string[];
 }
 
-export interface Media { url: string; title: string; years: [number, number]; bbox: number[] }
+export interface Media {
+  url: string; title: string; years: [number, number]; bbox: number[];
+  zoom?: string; size_px?: number; layer?: string; season?: string; metres_per_pixel?: number; native_resolution_m?: number;
+}
+
+export interface RegionInfo {
+  id: string; region_id: string; name: string; bbox: [number, number, number, number];
+  status: "queued" | "exporting" | "building" | "scoring" | "rendering" | "ready" | "failed";
+  progress: number; message: string | null; built_in: boolean; eta_minutes: number | null;
+}
+
+export interface Partner {
+  name: string; category: "reclaimed_water" | "clean_power" | "heat_user" | "water_body" | "data_centre";
+  lon: number; lat: number; distance_km: number; area_m2: number | null; osm: string;
+}
+
+export interface Flow { from: Partner | "site"; to: Partner | "site"; kind: "reclaimed_water" | "clean_power" | "heat" | "replenish"; label: string }
+
+export interface DataCentre {
+  name: string | null; site: [number, number]; it_load_mw: number; cooling: "evaporative" | "hybrid" | "closed_loop"; radius_km: number;
+  water_risk: Record<string, string | number | null>;
+  climate: { hours_above_25c: number; hours_above_35c: number; share_hours_needing_evaporative: number; solar_kwh_per_m2_yr: number | null };
+  water_m3_per_yr: Record<string, number>; water_ml_per_mw_yr: Record<string, number>;
+  chosen: {
+    total_m3: number; reclaimed_m3: number; freshwater_m3: number; replenishment_target_m3: number;
+    ponds_to_rejuvenate: { name: string; distance_km: number; area_ha: number; added_storage_m3: number }[];
+    replenishment_covered_by_ponds: boolean; ponds_nearby_count: number; plantable_ha_nearby: number | null;
+  };
+  partners: Partner[]; partner_counts: Record<string, number>; flows: Flow[]; assumptions: string[]; sources: string[];
+}
 
 export interface PolicySource {
   id: string; title: string; publisher: string; url: string; live: boolean; fetched_at: string | null;
@@ -83,6 +112,7 @@ export interface PolicySource {
 }
 
 export interface Workspace {
+  datacenter?: DataCentre | null;
   place?: Place | null;
   analysis?: AreaAnalysis | null;
   media?: Media | null;
@@ -102,8 +132,9 @@ export type AgentEvent =
   | { type: "step"; id: string; tool: string; label: string; tech: string[]; args: Record<string, unknown> }
   | { type: "step_done"; id: string; ok: boolean; ms: number; summary: string | null }
   | { type: "state"; patch: Partial<Workspace> & Record<string, unknown> }
-  | { type: "ui"; view: "map" | "plan" | "monitor" | "field"; focus?: "assess" | "sites" | "site" | "place" | "area"; site_id?: string; layer?: LayerId; plantation_id?: string; expect_alerts?: number }
+  | { type: "ui"; view: "map" | "plan" | "monitor" | "field"; focus?: "assess" | "sites" | "site" | "place" | "area" | "datacenter"; site_id?: string; layer?: LayerId; plantation_id?: string; expect_alerts?: number }
   | { type: "outline"; steps: string[] }
+  | { type: "region"; region: RegionInfo }
   | { type: "sources"; items: PolicySource[] }
   | { type: "text"; text: string }
   | { type: "error"; message: string }
@@ -121,7 +152,20 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const mediaUrl = (u: string) => (u.startsWith("/") ? API_BASE + u : u);
 
+/** Download through the API with a friendly file name (cross-origin <a download> is ignored by browsers). */
+export async function downloadMedia(m: Media) {
+  const name = `reroot-${m.title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${m.years[0]}-${m.years[1]}.gif`;
+  const res = await fetch(`${mediaUrl(m.url)}?download=1&filename=${encodeURIComponent(name)}`);
+  const blob = await res.blob();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
 export const api = {
+  regions: () => json<RegionInfo[]>("/v1/regions"),
   layer: (layer: LayerId) => json<{ tile_url: string }>(`/v1/layers/${layer}`),
   plantations: () => json<Plantation[]>("/v1/plantations"),
   timeseries: (id: string) => json<{ date: string; ndvi: number | null; expected: number | null }[]>(`/v1/plantations/${id}/timeseries`),

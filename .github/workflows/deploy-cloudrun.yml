@@ -50,5 +50,9 @@ jobs:
       - name: Deploy
         run: gcloud run deploy api --image "$IMAGE:$GITHUB_SHA" --region "$REGION" --project "$PROJECT" --quiet
 
+      # The region-builder job runs the same image (on-demand region grids).
+      - name: Update region-builder job
+        run: gcloud run jobs update region-builder --image "$IMAGE:$GITHUB_SHA" --region "$REGION" --project "$PROJECT" --quiet
+
       - name: Smoke test
         run: curl -fsS "https://api-152511810602.us-central1.run.app/health?deep=true"

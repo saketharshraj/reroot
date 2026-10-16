@@ -13,6 +13,7 @@ dependencies = [
     "google-auth>=2.62.0",
     "google-cloud-bigquery>=3.46.1",
     "google-cloud-pubsub>=2.42.0",
+    "google-cloud-run>=0.16.2",
     "google-cloud-storage>=3.17.0",
     "google-cloud-texttospeech>=2.38.0",
     "google-genai>=2.30.1",

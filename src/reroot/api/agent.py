@@ -21,8 +21,8 @@ from typing import Iterator
 
 from google.genai import types
 
-from reroot.api import alerts, assess, explore, monitor, plan, policy, sites
-from reroot.core import config
+from reroot.api import alerts, assess, datacenter, explore, monitor, plan, policy, sites
+from reroot.core import config, regions
 from reroot.core.clients import gemini, gen_config, init_ee
 
 log = logging.getLogger(__name__)
@@ -33,23 +33,37 @@ PRIORITIES = {"survival": "establishment", "water": "water", "connectivity": "co
               "people": "people", "terrain": "terrain"}
 BASE_WEIGHTS = {"establishment": 3, "water": 2, "connectivity": 2, "people": 1, "terrain": 1}
 
-TARGETS = ["project", "sites", "site", "plantations", "plantation", "place", "area"]
+TARGETS = ["project", "sites", "site", "plantations", "plantation", "place", "area", "datacenter"]
 
 TOOLS = [
     {"name": "outline_steps", "description": "Before a request that needs 3 or more other tools, call this FIRST with the short steps you will take, so the user sees your plan.",
      "parameters": {"type": "object", "properties": {"steps": {"type": "array", "items": {"type": "string"}, "description": "3-6 short imperative steps"}}, "required": ["steps"]}},
     {"name": "research_policy", "description": "Read official government sources live (Indian forest-conservation rules, the CAF Act, Green Credit Programme, Aravalli Green Wall, State of Forest Report) and return relevant passages to answer a policy or legal question. Answer only from the returned excerpts and cite source titles.",
      "parameters": {"type": "object", "properties": {"question": {"type": "string"}, "country": {"type": "string", "description": "ISO country code, default IN"}}, "required": ["question"]}},
-    {"name": "find_place", "description": "Find a village, town, landmark or road inside the analysed region and fly the map there.",
+    {"name": "find_place", "description": "Find a village, town, landmark or road anywhere in India and fly the map there. The result says whether that place's 1-hectare grid (needed for site search and planting potential) is loaded.",
      "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
+    {"name": "load_region", "description": "Start building the 1-hectare satellite grid for a new area (about 5-15 minutes: Earth Engine export, BigQuery grid, Vertex AI scoring). Only call after the user agrees to wait. The Studio shows progress and tells them when it is ready.",
+     "parameters": {"type": "object", "properties": {"place": {"type": "string"}, "lon": {"type": "number"}, "lat": {"type": "number"},
+                                                    "size_km": {"type": "number", "description": "square side, 5-25 km, default 12"}}}},
+    {"name": "region_status", "description": "Check the build progress of regions being loaded.",
+     "parameters": {"type": "object", "properties": {}}},
+    {"name": "assess_datacenter_site", "description": "Water-positive data centre screening for a site: WRI Aqueduct water risk, GRACE groundwater trend, cooling hours, annual cooling water for evaporative/hybrid/closed-loop cooling, and nearby partners for a resource loop (treated wastewater in, clean power in, waste heat out, ponds and land for replenishment). Works anywhere in India.",
+     "parameters": {"type": "object", "properties": {"place": {"type": "string"}, "lon": {"type": "number"}, "lat": {"type": "number"},
+                                                    "it_load_mw": {"type": "number", "description": "IT load in MW, default 50"},
+                                                    "cooling": {"type": "string", "enum": ["evaporative", "hybrid", "closed_loop"], "description": "default evaporative"},
+                                                    "radius_km": {"type": "number", "description": "partner search radius, default 15"}}}},
     {"name": "analyze_area", "description": "Land cover, tree cover, carbon and plantable hectares within a radius of a place or point. Use for questions like 'what is around X' or 'how much land could we plant near Y'.",
      "parameters": {"type": "object", "properties": {"place": {"type": "string"}, "lon": {"type": "number"}, "lat": {"type": "number"},
                                                     "radius_km": {"type": "number", "description": "default 2"}}}},
-    {"name": "make_timelapse", "description": "Make a satellite timelapse (one Sentinel-2 frame per dry season) of a target, to show change over the years.",
+    {"name": "make_timelapse", "description": "Make a Sentinel-2 satellite timelapse (one frame per year, 2019-2026) of a target to show change. Adjustable: zoom (closer/normal/wider framing), size_px (256-1024), layer (true colour or NDVI vegetation), season (dry Jan-Apr or post-monsoon Oct-Dec), years. The user can download it as a GIF.",
      "parameters": {"type": "object", "properties": {
          "target": {"type": "string", "enum": ["project", "site", "plantation", "area", "place"]},
          "rank": {"type": "integer", "description": "site rank when target=site"},
-         "plantation_id": {"type": "string"}, "start_year": {"type": "integer"}, "end_year": {"type": "integer"}},
+         "plantation_id": {"type": "string"}, "start_year": {"type": "integer"}, "end_year": {"type": "integer"},
+         "zoom": {"type": "string", "enum": ["closer", "normal", "wider"]},
+         "size_px": {"type": "integer", "description": "output width, 256-1024; larger = sharper but slower"},
+         "layer": {"type": "string", "enum": ["true_colour", "ndvi"]},
+         "season": {"type": "string", "enum": ["dry", "post_monsoon"]}},
          "required": ["target"]}},
     {"name": "show_on_map", "description": "Point the map at something you are talking about, optionally switching the satellite layer.",
      "parameters": {"type": "object", "properties": {
@@ -87,6 +101,9 @@ STEP_INFO = {
     "outline_steps": ("Planning the steps", []),
     "research_policy": ("Reading official government sources", ["Official sources", "Gemini"]),
     "find_place": ("Finding the place", ["OpenStreetMap"]),
+    "load_region": ("Starting to load this region", ["Earth Engine", "BigQuery", "Vertex AI"]),
+    "region_status": ("Checking region loading", ["BigQuery"]),
+    "assess_datacenter_site": ("Screening water risk and resource loops", ["Earth Engine", "OpenStreetMap", "BigQuery"]),
     "analyze_area": ("Analysing the land around it", ["Earth Engine", "BigQuery"]),
     "make_timelapse": ("Rendering a satellite timelapse", ["Earth Engine"]),
     "show_on_map": ("Pointing the map", []),
@@ -121,7 +138,15 @@ How to work:
   Chain tools when the user's request implies it (e.g. "find sites for the bypass" with no footprint:
   load_demo_project, assess_project, then find_planting_sites).
 - If there is no footprint, ask them to draw it on the map or upload a KML/GeoJSON, or offer the demo bypass.
-- Coverage: only the Aravalli belt between Gurugram and Faridabad is analysed in this version.
+- Coverage: satellite tools (assess, area analysis, timelapse, data-centre screening, layers) work
+  anywhere in India. Site search and planting potential need a region's 1-hectare grid; the Aravalli
+  belt (Gurugram–Faridabad) is loaded, and users can load more. When find_place or a tool reports the
+  grid isn't loaded, say so plainly, say what you CAN do right now, and offer to load it ("this takes
+  about N minutes; I'll tell you when it's ready"). Only call load_region after the user agrees.
+  The survival model was trained on the Aravalli belt; elsewhere call its ranking indicative.
+- Data centres and water: for siting/water questions use assess_datacenter_site. Explain the loop:
+  treated wastewater in, clean power in, waste heat out to nearby users, replenishment through ponds
+  and land restoration, and the 120% replenishment target. Quote its assumptions; it is screening-grade.
 - Ecology: never suggest planting on farmland, natural grassland or wetlands; native species only;
   never Vilayati kikar (Prosopis juliflora).
 - Style: short and concrete. 2-5 sentences, then bullets if useful. Use hectares (ha), t CO2e and
@@ -138,9 +163,20 @@ How to work:
 - Make every mention clickable with these markdown links (the UI flies the map there):
   [site 3](#site-3), [Pali scrubland block](#plantation-P3), [Mangar](#place-77.18,28.41),
   [the footprint](#project), [vegetation health](#layer-ndvi), [the plan](#view-plan),
-  [the timelapse](#media), [the area analysis](#area), [plantation monitoring](#view-monitor).
+  [the timelapse](#media), [the area analysis](#area), [plantation monitoring](#view-monitor),
+  [the data centre site](#datacenter).
 - The UI already shows maps, cards, the plan document and alerts; don't repeat every number,
   highlight what matters and say where to look.
+
+Capabilities and limits (be honest; never pretend):
+- Imagery is Sentinel-2 at 10 m per pixel, 2019-2026. You can't show individual saplings or anything
+  smaller than ~10 m, and there's no imagery before 2019 in timelapses.
+- Timelapse can go closer/wider, larger (up to 1024 px), NDVI instead of true colour, or post-monsoon.
+  "More zoomed" = re-run make_timelapse with zoom="closer" and a larger size_px. If they ask for detail
+  finer than 10 m, explain that limit and offer the closest option.
+- You can't forecast beyond 10 days of weather, give legal advice, or access private land records.
+- If a request is outside your tools, say so in one line and offer the nearest thing you can do.
+- When you change a result on request (zoom, years, layer, weights), say what you changed.
 
 Workspace right now:
 {workspace}"""
@@ -160,8 +196,21 @@ def _workspace_summary(ws: dict) -> str:
         s["place"] = {k: ws["place"].get(k) for k in ("name", "lon", "lat")}
     if ws.get("analysis"):
         a = ws["analysis"]
-        s["area_analysis"] = {k: a.get(k) for k in ("name", "radius_km", "plantable_ha", "tree_cover_ha")}
+        s["area_analysis"] = {k: a.get(k) for k in ("name", "radius_km", "plantable_ha", "tree_cover_ha", "region_loaded")}
+    if ws.get("media"):
+        s["last_timelapse"] = {k: ws["media"].get(k) for k in ("title", "target", "rank", "plantation_id", "zoom", "size_px",
+                                                                "layer", "season", "years", "metres_per_pixel")}
+    if ws.get("datacenter"):
+        d = ws["datacenter"]
+        s["datacenter"] = {"name": d.get("name"), "it_load_mw": d.get("it_load_mw"), "cooling": d.get("cooling")}
+    s["loaded_regions"] = [{"id": r["region_id"], "name": r["name"], "status": r["status"]} for r in regions.all_regions().values()]
     return json.dumps(s)
+
+
+def _centroid(g: dict) -> tuple[float, float]:
+    polys = [g["coordinates"]] if g["type"] == "Polygon" else g["coordinates"]
+    pts = [pt for p in polys for pt in p[0]]
+    return sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
 
 
 def _site_brief(s: dict) -> dict:
@@ -203,9 +252,16 @@ class Tools:
         for p in priorities or []:
             weights[PRIORITIES[p]] += 2
         need = area_ha or (self.ws.get("assess") or {}).get("offset_required_ha") or 50
+        lon, lat = _centroid(self.ws["project"])
+        region_id = regions.containing(lon, lat)
+        if not region_id:
+            loading = regions.containing(lon, lat, ready_only=False)
+            return ({"error": "this footprint's region is still loading" if loading else
+                     "no 1-hectare grid for this area yet; offer load_region (satellite assessment still works)",
+                     "center": [lon, lat]}, [])
         req = {"project_geometry": self.ws["project"], "area_ha_needed": float(need),
                "radius_km": float(radius_km or 15), "exclude": avoid or ["farmland", "built", "water", "grassland", "steep"],
-               "weights": weights, "region": config.DEFAULT_REGION}
+               "weights": weights, "region": region_id}
         r = sites.search(req)
         self.ws.update(sites=r["sites"], site_query={k: req[k] for k in ("area_ha_needed", "radius_km", "exclude", "weights")})
         result = {"area_needed_ha": need, "area_found_ha": r["area_ha_selected"], "cells_checked": r["cells_considered"],
@@ -273,11 +329,64 @@ class Tools:
     def find_place(self, query: str):
         hits = explore.find_place(query)
         if not hits:
-            return {"error": f"'{query}' not found inside the analysed region (Aravalli belt, Gurugram–Faridabad)"}, []
+            return {"error": f"'{query}' not found in India on OpenStreetMap"}, []
         p = hits[0]
         self.ws["place"] = p
-        return ({"place": p, "other_matches": [h["label"] for h in hits[1:3]]},
-                [{"type": "state", "patch": {"place": p}}, {"type": "ui", "view": "map", "focus": "place"}])
+        result = {"place": {k: p[k] for k in ("name", "label", "lon", "lat", "kind")}, "grid_loaded": p["data_loaded"],
+                  "other_matches": [h["label"] for h in hits[1:3]]}
+        if not p["data_loaded"]:
+            loading = p.get("region_id")
+            result["note"] = (f"Region {loading} is still loading." if loading else
+                              "No 1-hectare grid here yet: site search and planting potential need load_region "
+                              f"(~{regions.eta_minutes(regions.create_bbox(p['lon'], p['lat']))} min). Satellite tools work now.")
+        return result, [{"type": "state", "patch": {"place": p}}, {"type": "ui", "view": "map", "focus": "place"}]
+
+    def load_region(self, place=None, lon=None, lat=None, size_km=12):
+        name = place or (self.ws.get("place") or {}).get("name") or "New region"
+        if lon is None or lat is None:
+            if place:
+                hits = explore.find_place(place)
+                if not hits:
+                    return {"error": f"'{place}' not found"}, []
+                lon, lat, name = hits[0]["lon"], hits[0]["lat"], hits[0]["name"]
+            elif self.ws.get("place"):
+                lon, lat = self.ws["place"]["lon"], self.ws["place"]["lat"]
+            else:
+                return {"error": "need a place or coordinates"}, []
+        existing = regions.containing(float(lon), float(lat), ready_only=False)
+        if existing:
+            r = regions.spec(existing)
+            return {"region": regions.public(r), "note": "already loaded or loading"}, [{"type": "region", "region": regions.public(r) | {"id": existing}}]
+        r = regions.create(name, float(lon), float(lat), size_km or 12)
+        regions.start_build(r["region_id"])
+        pub = regions.public(regions.spec(r["region_id"])) | {"id": r["region_id"]}
+        return {"region": pub, "note": f"Building; about {pub['eta_minutes']} minutes."}, [{"type": "region", "region": pub}]
+
+    def region_status(self):
+        return {"regions": [regions.public(r) for r in regions.all_regions(fresh=True).values()]}, []
+
+    def assess_datacenter_site(self, place=None, lon=None, lat=None, it_load_mw=50, cooling="evaporative", radius_km=15):
+        name = place
+        if place and (lon is None or lat is None):
+            hits = explore.find_place(place)
+            if not hits:
+                return {"error": f"'{place}' not found"}, []
+            lon, lat, name = hits[0]["lon"], hits[0]["lat"], hits[0]["name"]
+            self.ws["place"] = hits[0]
+        if lon is None and self.ws.get("place"):
+            lon, lat, name = self.ws["place"]["lon"], self.ws["place"]["lat"], self.ws["place"]["name"]
+        if lon is None:
+            return {"error": "need a place or coordinates for the site"}, []
+        init_ee(high_volume=True)
+        d = datacenter.assess_site(float(lon), float(lat), name, float(it_load_mw or 50), cooling or "evaporative", float(radius_km or 15))
+        self.ws["datacenter"] = d
+        brief = {k: d[k] for k in ("name", "it_load_mw", "cooling", "water_risk", "climate", "water_ml_per_mw_yr", "chosen",
+                                   "partner_counts", "assumptions")}
+        brief["flows"] = [{"kind": f["kind"], "label": f["label"],
+                           "partner": (f["from"] if isinstance(f["from"], dict) else f["to"])["name"],
+                           "distance_km": (f["from"] if isinstance(f["from"], dict) else f["to"])["distance_km"]} for f in d["flows"]]
+        patch = {"datacenter": d} | ({"place": self.ws["place"]} if self.ws.get("place") else {})
+        return brief, [{"type": "state", "patch": patch}, {"type": "ui", "view": "map", "focus": "datacenter"}]
 
     def analyze_area(self, place=None, lon=None, lat=None, radius_km=None):
         name = place
@@ -316,13 +425,18 @@ class Tools:
             return [explore.circle(pl["lon"], pl["lat"], 1.0)], pl["name"]
         return [], ""
 
-    def make_timelapse(self, target: str, rank=None, plantation_id=None, start_year=2019, end_year=2026):
+    def make_timelapse(self, target: str, rank=None, plantation_id=None, start_year=2019, end_year=2026,
+                       zoom="normal", size_px=520, layer="true_colour", season="dry"):
         geoms, title = self._target_geoms(target, rank, plantation_id)
         if not geoms:
             return {"error": f"nothing to show for target '{target}' yet"}, []
         init_ee(high_volume=True)
-        m = explore.timelapse(geoms, title, start_year or 2019, end_year or 2026)
-        return ({"ok": True, "title": m["title"], "years": m["years"]},
+        m = explore.timelapse(geoms, title, start_year or 2019, end_year or 2026, zoom or "normal",
+                              size_px or 520, layer or "true_colour", season or "dry")
+        m = m | {"target": target, "rank": rank, "plantation_id": plantation_id}  # so "zoom in" can redo the same target
+        self.ws["media"] = m
+        return ({"ok": True} | {k: m[k] for k in ("title", "years", "zoom", "size_px", "layer", "season",
+                                                   "metres_per_pixel", "native_resolution_m")},
                 [{"type": "state", "patch": {"media": m}}] + self._focus_events(target, rank, plantation_id))
 
     def _focus_events(self, target, rank=None, plantation_id=None, layer=None) -> list[dict]:
@@ -338,7 +452,7 @@ class Tools:
             ev["focus"] = "sites"
         elif target == "project":
             ev["focus"] = "assess"
-        elif target in ("place", "area"):
+        elif target in ("place", "area", "datacenter"):
             ev["focus"] = target
         return [ev]
 

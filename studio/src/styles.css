@@ -381,3 +381,44 @@ h1, h2, h3 { letter-spacing: -0.015em; margin: 0; }
 @media (max-width: 860px) {
   .media-card { left: 8px; right: 8px; width: auto; bottom: 8px; }
 }
+
+/* --- Data centre card ------------------------------------------------------------------ */
+.eyebrow.violet { color: #6d28d9; }
+.risk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; }
+.risk { border-radius: 9px; padding: 6px 9px; display: grid; border: 1px solid var(--line-2); }
+.risk span { font-size: 11px; color: var(--muted); }
+.risk b { font-size: 13px; }
+.risk.bad { background: #fef2f2; border-color: #fecaca; } .risk.bad b { color: #b91c1c; }
+.risk.warn { background: var(--amber-50); border-color: #fde68a; } .risk.warn b { color: var(--amber); }
+.risk.ok { background: var(--brand-50); border-color: var(--brand-100); } .risk.ok b { color: var(--brand); }
+.mini-h { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 12px 0 6px; }
+.wbar { display: grid; grid-template-columns: 140px 1fr 64px; gap: 8px; align-items: center; font-size: 12.5px; margin: 4px 0; color: var(--ink-2); }
+.wbar.on { font-weight: 700; }
+.wbar-track { height: 8px; background: var(--line-2); border-radius: 4px; overflow: hidden; }
+.wbar-track i { display: block; height: 100%; background: #0284c7; }
+.wbar.on .wbar-track i { background: #0369a1; }
+.wbar b { text-align: right; font-variant-numeric: tabular-nums; }
+.loop { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+.loop div { border: 1px solid var(--line-2); border-radius: 9px; padding: 6px 9px; display: grid; }
+.loop span { font-size: 11px; color: var(--muted); }
+.loop b { font-size: 16px; font-variant-numeric: tabular-nums; }
+.loop .blue { background: #f0f9ff; border-color: #bae6fd; } .loop .blue b { color: #0369a1; }
+.loop .green { background: var(--brand-50); border-color: var(--brand-100); } .loop .green b { color: var(--brand); }
+.flows { list-style: none; padding: 0; margin: 0; display: grid; gap: 5px; }
+.flows li { display: grid; grid-template-columns: auto 1fr; gap: 0 8px; align-items: center; font-size: 12.5px; }
+.flows em { grid-row: span 2; font-style: normal; color: #fff; font-size: 10.5px; font-weight: 700; padding: 2px 6px; border-radius: 5px; }
+.flows span { color: var(--muted); font-size: 11.5px; }
+.assume { margin-top: 8px; font-size: 12px; }
+.assume summary { cursor: pointer; color: var(--muted); }
+.assume ul { margin: 6px 0 0; padding-left: 18px; color: var(--ink-2); }
+
+/* --- Region loading banner, media footer ---------------------------------------------- */
+.region-banner { position: absolute; top: 52px; left: 12px; z-index: 5; display: flex; gap: 10px; align-items: center; background: var(--surface); border: 1px solid #fde68a; border-left: 4px solid #f59e0b; border-radius: 10px; padding: 9px 12px; box-shadow: var(--shadow); max-width: min(440px, calc(100% - 420px)); }
+.region-banner div { display: grid; gap: 2px; min-width: 0; }
+.region-banner b { font-size: 13px; }
+.region-banner span { font-size: 12px; color: var(--muted); }
+.rb-track { display: block; height: 5px; background: var(--line-2); border-radius: 3px; overflow: hidden; margin-top: 3px; }
+.rb-track i { display: block; height: 100%; background: #f59e0b; transition: width 0.6s; }
+.media-card footer { display: flex; align-items: center; gap: 6px; }
+.btn.sm { padding: 4px 9px; font-size: 12px; }
+@media (max-width: 860px) { .region-banner { left: 8px; right: 8px; max-width: none; } }

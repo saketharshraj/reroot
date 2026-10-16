@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, chat, type AgentEvent, type Geometry, type LayerId, type Role, type Workspace } from "./api";
+import { api, chat, type AgentEvent, type Geometry, type LayerId, type RegionInfo, type Role, type Workspace } from "./api";
 import { Chat, ROLES, type Message } from "./Chat";
 import { FieldPhone } from "./FieldPhone";
 import { areaHa, readFootprint } from "./geo";
@@ -53,6 +53,8 @@ export default function App() {
   const [focus, setFocus] = useState<MapFocus | null>(null);
   const [mediaOpen, setMediaOpen] = useState(false);
   const [phone, setPhone] = useState<{ open: boolean; since: number | null; plantation: string | null }>({ open: false, since: null, plantation: null });
+  const [regions, setRegions] = useState<RegionInfo[]>([]);
+  const prevRegions = useRef<Record<string, string>>({});
 
   const focusOn = (kind: MapFocus["kind"], id?: string, lonlat?: [number, number]) => setFocus({ kind, id, lonlat, nonce: Date.now() });
 
@@ -69,6 +71,32 @@ export default function App() {
     }, 600);
     return () => clearTimeout(t);
   }, [messages, ws, view, convId]);
+
+  // Regions: poll while any is loading; announce in the chat when one becomes ready.
+  const loading = regions.some((r) => !["ready", "failed"].includes(r.status));
+  useEffect(() => {
+    let stop = false;
+    const tick = () => api.regions().then((rs) => {
+      if (stop) return;
+      for (const r of rs) {
+        const before = prevRegions.current[r.id];
+        if (before && before !== r.status && (r.status === "ready" || r.status === "failed")) {
+          setMessages((ms) => [...ms, {
+            id: uid(), role: "assistant", steps: [],
+            text: r.status === "ready"
+              ? `**${r.name} is ready.** Its 1-hectare grid is built and scored, so site search and planting potential now work there. Want me to find planting sites or analyse the area?`
+              : `Loading **${r.name}** failed: ${r.message ?? "unknown error"}. You can ask me to try again.`,
+          }]);
+          if (r.status === "ready") focusOn("region", r.id);
+        }
+        prevRegions.current[r.id] = r.status;
+      }
+      setRegions(rs);
+    }).catch(() => {});
+    tick();
+    const id = setInterval(tick, loading ? 6000 : 60000);
+    return () => { stop = true; clearInterval(id); };
+  }, [loading]);
 
   useEffect(() => {
     if (tiles[layer]) return;
@@ -97,6 +125,12 @@ export default function App() {
       case "outline":
         patchMessage(aid, (m) => ({ ...m, outline: e.steps }));
         break;
+      case "region":
+        setRegions((rs) => [...rs.filter((r) => r.id !== e.region.id), e.region]);
+        prevRegions.current[e.region.id] = e.region.status;
+        setView("map");
+        focusOn("region", e.region.id);
+        break;
       case "sources":
         patchMessage(aid, (m) => ({ ...m, sources: e.items }));
         break;
@@ -124,6 +158,7 @@ export default function App() {
           else if (e.focus === "site" && e.site_id) (setSelectedSite(e.site_id), focusOn("site", e.site_id));
           else if (e.focus === "place") focusOn("place");
           else if (e.focus === "area") focusOn("area");
+          else if (e.focus === "datacenter") focusOn("datacenter");
           else if (e.focus === "assess" || !e.layer) focusOn("project");
         }
         if (e.view === "monitor") {
@@ -154,6 +189,7 @@ export default function App() {
     const payload: Workspace = {
       profile: profileOverride ?? ws.profile, project: ws.project, project_name: ws.project_name,
       assess: ws.assess, sites: ws.sites, plan_id: ws.plan_id, place: ws.place, analysis: ws.analysis,
+      media: ws.media, datacenter: ws.datacenter ? { ...ws.datacenter, partners: [] } : null,
     };
     try {
       await chat(text, history, payload, (e) => handle(aid, e), ctrl.signal);
@@ -186,6 +222,7 @@ export default function App() {
     if (href === "project" && ws.project) return (setView("map"), focusOn("project"));
     if (href === "media" && ws.media) return setMediaOpen(true);
     if (href === "area" && ws.analysis) return (setView("map"), focusOn("area"));
+    if (href === "datacenter" && ws.datacenter) return (setView("map"), focusOn("datacenter"));
     if (text.trim() && !busy) send(text.trim());
   }
 
@@ -226,9 +263,11 @@ export default function App() {
     if (ws.plantations?.length && view === "monitor") return ["Check the Pali scrubland block", "Show a timelapse of the Bandhwari ridge restoration", "Alert caretakers wherever action is needed"];
     if (ws.sites?.length) return ["Write the compensatory planting plan", "Why is site 1 ranked first?", "Show a timelapse of site 1", "What do the rules say about planting on degraded forest land?"];
     if (ws.assess) return ["Find planting sites, avoid farmland, prioritise survival", "Find sites within 10 km that reconnect forest"];
+    if (ws.datacenter) return ["What if we use hybrid cooling instead?", "What do the rules say about using treated wastewater?", "Show a closer timelapse of the site"];
+    if (ws.media) return ["Make the timelapse closer and sharper", "Show it as vegetation health (NDVI)", "Show the post-monsoon season instead"];
     if (ws.analysis) return ["Show a timelapse of this area", "Find planting sites near here"];
     if (ws.project) return ["What will this footprint clear?"];
-    return ["Use the demo bypass", "What's the land like within 2 km of Mangar village?", "Is a Green Credit available for planting on degraded land?"];
+    return ["Use the demo bypass", "Screen a 50 MW data centre near Gwal Pahari for water risk", "What's the land like within 2 km of Mangar village?"];
   }, [messages.length, ws.project, ws.assess, ws.sites, ws.plan, ws.plantations, ws.analysis, view]);
 
   const role = ws.profile?.role ?? null;
@@ -298,6 +337,8 @@ export default function App() {
           showPlantations={view === "monitor"}
           place={ws.place ?? null}
           analysis={view === "monitor" ? null : ws.analysis ?? null}
+          datacenter={view === "monitor" ? null : ws.datacenter ?? null}
+          regions={regions}
           drawing={drawing}
           focus={focus}
           onDrawFinish={(g) => { setDrawing(false); setFootprint(g, "Drawn footprint"); }}
@@ -333,9 +374,18 @@ export default function App() {
           ? <PlanDoc plan={ws.plan} onClose={() => setView("map")} />
           : <PlanEmpty ws={ws} busy={busy} onAsk={(t) => send(t)} />)}
 
-        {mediaOpen && ws.media && view !== "plan" && (
-          <MediaCard title={ws.media.title} url={ws.media.url} years={ws.media.years} onClose={() => setMediaOpen(false)} />
-        )}
+        {mediaOpen && ws.media && view !== "plan" && <MediaCard media={ws.media} onClose={() => setMediaOpen(false)} />}
+
+        {regions.filter((r) => !["ready", "failed"].includes(r.status)).map((r) => (
+          <div key={r.id} className="region-banner" role="status">
+            <span className="spin" />
+            <div>
+              <b>Loading {r.name}</b>
+              <span>{r.message ?? "Queued"}{r.eta_minutes ? ` · about ${r.eta_minutes} min in total` : ""}</span>
+              <i className="rb-track"><i style={{ width: `${Math.round((r.progress ?? 0) * 100)}%` }} /></i>
+            </div>
+          </div>
+        ))}
 
         {phone.open && (
           <FieldPhone
