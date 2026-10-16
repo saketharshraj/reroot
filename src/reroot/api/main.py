@@ -82,7 +82,9 @@ def health(deep: bool = False):
         if path:  # existence and size only, never contents
             diag |= {"credentials_file": path, "exists": os.path.exists(path),
                      "size_bytes": os.path.getsize(path) if os.path.exists(path) else None,
-                     "secrets_dir": sorted(os.listdir("/etc/secrets")) if os.path.isdir("/etc/secrets") else None}
+                     "secrets_files": sorted(os.path.relpath(os.path.join(d, f), "/etc/secrets")
+                                             for d, _, fs in os.walk("/etc/secrets", followlinks=True) for f in fs)
+                     if os.path.isdir("/etc/secrets") else None}
         return {**out, "error": _startup_error, "diagnostics": diag}
     if deep:
         out["ee"] = ee.Number(1).getInfo() == 1

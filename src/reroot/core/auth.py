@@ -40,8 +40,24 @@ def _key_from_env():
     return service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
 
 
+def _key_from_secrets_dir(root: str = "/etc/secrets"):
+    """Render mounts secret files here; accept a service-account key under any file name."""
+    if not os.path.isdir(root):
+        return None
+    for dirpath, _, files in os.walk(root, followlinks=True):
+        for name in sorted(files):
+            try:
+                with open(os.path.join(dirpath, name)) as fh:
+                    info = json.load(fh)
+            except (OSError, ValueError):
+                continue
+            if isinstance(info, dict) and info.get("type") == "service_account":
+                return service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
+    return None
+
+
 def get_credentials():
-    creds = _key_from_env()
+    creds = _key_from_env() or _key_from_secrets_dir()
     if creds:
         return creds
     try:
