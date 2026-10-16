@@ -111,7 +111,50 @@ export interface PolicySource {
   available: boolean; tls_verified: boolean;
 }
 
+export type WaterVerdict = "verified" | "partial" | "at_risk" | "not_additional" | "not_verified" | "too_early" | "insufficient_data";
+
+export interface WaterMonth {
+  month: string; water_ha: number | null; optical_water_ha: number | null; green_ha: number | null;
+  rain_mm: number | null; s1_images: number;
+}
+
+export interface WaterYear {
+  year: number; label: string; peak_ha: number; dry_ha: number | null; wet_months: number; months_observed: number;
+  monsoon_rain_mm: number | null; green_dry_share: number | null; complete: boolean;
+  rain_vs_baseline?: number; expected_peak_ha?: number; excess_peak_ha?: number; dry_gain_ha?: number | null;
+  peak_gain?: boolean; dry_gain?: boolean;
+}
+
+export interface WaterEvaluation {
+  verdict: WaterVerdict; verdict_text: string; note?: string | null; gain_years?: string[];
+  intervention: string; outline_ha: number; years: WaterYear[]; baseline_years: string[]; post_years: string[];
+  baseline?: { peak_ha: number; max_peak_ha: number; dry_ha: number | null; monsoon_rain_mm: number | null; wet_months: number };
+  judged_year?: string; recent?: { months: [string, string] | null; open_water_ha: number | null; green_cover_ha: number | null };
+  depth_m: number; claimed_m3_yr: number | null; credited_m3_yr: number; radar_optical_agreement?: number | null;
+  assumptions?: string[];
+}
+
+export interface WaterProject {
+  project_id: string | null; name: string; place?: string | null; sponsor?: string | null; intervention?: string | null;
+  intervention_date: string; outline_ha: number; depth_m: number; claimed_m3_yr: number | null; is_demo: boolean;
+  notes?: string | null; references?: string[]; lon: number; lat: number; geometry: Geometry;
+  verdict?: WaterVerdict; credited_m3_yr?: number; judged_year?: string;
+  recent?: { open_water_ha: number | null; green_cover_ha: number | null };
+}
+
+export interface WaterCheck extends WaterProject { evaluation: WaterEvaluation; series: WaterMonth[]; sources: string[] }
+
+export interface WaterLedger {
+  sponsor: string; target_m3_yr: number | null; target_source: string | null; claimed_m3_yr: number; verified_m3_yr: number;
+  claimed_pct_of_target: number | null; verified_pct_of_target: number | null; gap_m3_yr: number;
+  projects: { project_id: string; name: string; verdict: WaterVerdict; claimed_m3_yr: number; credited_m3_yr: number; judged_year: string }[];
+  sources: string[];
+}
+
 export interface Workspace {
+  water_projects?: WaterProject[] | null;
+  water_check?: WaterCheck | null;
+  water_ledger?: WaterLedger | null;
   datacenter?: DataCentre | null;
   place?: Place | null;
   analysis?: AreaAnalysis | null;
@@ -132,7 +175,7 @@ export type AgentEvent =
   | { type: "step"; id: string; tool: string; label: string; tech: string[]; args: Record<string, unknown> }
   | { type: "step_done"; id: string; ok: boolean; ms: number; summary: string | null }
   | { type: "state"; patch: Partial<Workspace> & Record<string, unknown> }
-  | { type: "ui"; view: "map" | "plan" | "monitor" | "field"; focus?: "assess" | "sites" | "site" | "place" | "area" | "datacenter"; site_id?: string; layer?: LayerId; plantation_id?: string; expect_alerts?: number }
+  | { type: "ui"; view: "map" | "plan" | "monitor" | "water" | "field"; focus?: "assess" | "sites" | "site" | "place" | "area" | "datacenter" | "water"; site_id?: string; layer?: LayerId; plantation_id?: string; water_project_id?: string | null; expect_alerts?: number }
   | { type: "outline"; steps: string[] }
   | { type: "region"; region: RegionInfo }
   | { type: "sources"; items: PolicySource[] }
@@ -169,6 +212,9 @@ export const api = {
   layer: (layer: LayerId, area?: { region?: string; bbox?: number[] }) =>
     json<{ tile_url: string }>(`/v1/layers/${layer}${area?.bbox ? `?bbox=${area.bbox.map((x) => x.toFixed(3)).join(",")}` : area?.region ? `?region=${area.region}` : ""}`),
   plantations: () => json<Plantation[]>("/v1/plantations"),
+  waterProjects: () => json<WaterProject[]>("/v1/water/projects"),
+  waterProject: (id: string) => json<WaterCheck>(`/v1/water/projects/${id}`),
+  waterLedger: () => json<WaterLedger>("/v1/water/ledger"),
   timeseries: (id: string) => json<{ date: string; ndvi: number | null; expected: number | null }[]>(`/v1/plantations/${id}/timeseries`),
   alerts: (plantationId?: string) => json<Alert[]>(`/v1/alerts${plantationId ? `?plantation_id=${plantationId}` : ""}`),
   audioUrl: (alertId: string) => `${API_BASE}/v1/alerts/${alertId}/audio`,

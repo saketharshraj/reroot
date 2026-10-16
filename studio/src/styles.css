@@ -422,3 +422,29 @@ h1, h2, h3 { letter-spacing: -0.015em; margin: 0; }
 .media-card footer { display: flex; align-items: center; gap: 6px; }
 .btn.sm { padding: 4px 9px; font-size: 12px; }
 @media (max-width: 860px) { .region-banner { left: 8px; right: 8px; max-width: none; } }
+
+/* Water replenishment */
+.ledger-bars { display: grid; gap: 6px; margin-bottom: 10px; }
+.lrow { display: grid; grid-template-columns: 62px 1fr 42px; gap: 8px; align-items: center; font-size: 12.5px; color: var(--ink-2); }
+.lrow b { text-align: right; font-variant-numeric: tabular-nums; }
+.ltrack { position: relative; height: 10px; background: var(--line-2); border-radius: 5px; overflow: visible; display: block; }
+.ltrack > i { display: block; height: 100%; border-radius: 5px; }
+.lclaimed { background: repeating-linear-gradient(135deg, #93c5fd 0 5px, #bfdbfe 5px 10px); }
+.lverified { background: #1d4ed8; }
+.ltrack .lmark { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); border-radius: 1px; }
+.chart .water-line { fill: none; stroke: #1d4ed8; stroke-width: 1.8; }
+.chart .green-line { fill: none; stroke: #16a34a; stroke-width: 1.4; stroke-dasharray: 3 2; }
+.chart .optical-dot { fill: #38bdf8; }
+.chart .rainbar { fill: #94a3b8; opacity: 0.55; }
+.k.water { border-color: #1d4ed8; } .k.optical { border-color: #38bdf8; border-top-style: dotted; border-top-width: 3px; }
+.k.green { border-color: #16a34a; border-top-style: dashed; } .k.rain { border-color: #94a3b8; border-top-width: 6px; width: 6px; }
+.wtable { width: 100%; border-collapse: collapse; margin: 4px 0 4px; font-variant-numeric: tabular-nums; }
+.wtable th { text-align: right; font-weight: 600; color: var(--muted); padding: 3px 4px; border-bottom: 1px solid var(--line); }
+.wtable td { text-align: right; padding: 3px 4px; border-bottom: 1px solid var(--line-2); }
+.wtable th:first-child, .wtable td:first-child { text-align: left; }
+.wtable tr.base td { color: var(--muted); }
+.wtable td em { font-style: normal; font-size: 10px; color: var(--muted); }
+.wtable td.gain { color: var(--brand); font-weight: 700; }
+.btn-row { display: flex; gap: 6px; margin: 8px 0 4px; }
+.btn-row .btn { flex: 1; }
+.refs { display: flex; gap: 10px; }

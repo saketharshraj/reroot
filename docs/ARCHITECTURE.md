@@ -26,7 +26,7 @@ caretakers as voice notes, photo verification).
 |---|---|---|
 | `src/reroot/core/` | config, credentials, clients, reusable EE layers | Shared; change with care |
 | `src/reroot/pipelines/` | EE feature extraction → `reroot.grid_cells`, model training | Batch, uses standard EE endpoint |
-| `src/reroot/api/` | FastAPI service. `agent.py` (Gemini + 19 tools, SSE), `assess`, `sites`, `plan`, `monitor`, `alerts`, `verify`, `basemap`, `policy` (trusted official sources), `explore` (place search, area analysis, timelapse), `datacenter` (water-positive siting + resource loops) | Contract: `contracts/openapi.yaml` |
+| `src/reroot/api/` | FastAPI service. `agent.py` (Gemini + 22 tools, SSE), `assess`, `sites`, `plan`, `monitor`, `alerts`, `verify`, `basemap`, `policy` (trusted official sources), `explore` (place search, area analysis, timelapse), `datacenter` (water-positive siting + resource loops), `water` (replenishment verification + ledger) | Contract: `contracts/openapi.yaml` |
 | `src/reroot/notifier/` | Pub/Sub push consumer → Telegram, Cloud TTS voice notes | Contract: `contracts/alert_message.schema.json` |
 | `studio/` | **ReRoot Studio**: the product. Chat-first (Gemini agent) + map canvas, plan doc, monitor, caretaker phone | `VITE_API_BASE_URL`, `VITE_LAB_URL`; Vercel project #1 |
 | `web/` | **Data Lab**: internal visualiser of layers, assess, site search | `VITE_API_BASE_URL`; Vercel project #2 |
@@ -71,7 +71,7 @@ Scoring: 2025 features. Holdout is spatial (2 km blocks) to avoid neighbour leak
   `api/policy.py` (allow-listed government domains; live fetch, Cloud Storage snapshot fallback).
   Add sources there; refresh snapshots with `uv run python -m reroot.api.policy`.
 - Replies link entities as `#site-N`, `#plantation-ID`, `#place-lon,lat`, `#layer-ID`, `#view-plan`,
-  `#media`, `#area`; Studio turns these into map actions (unknown links are sent as a question).
+  `#media`, `#area`, `#datacenter`, `#water-W1` (or `#water-adhoc`), `#view-water`; Studio turns these into map actions (unknown links are sent as a question).
 - Studio keeps chat history in the browser's localStorage only (`studio/src/history.ts`).
 - Regions: `core/regions.py` = built-in `config.REGIONS` + on-demand rows in BigQuery `reroot.regions`.
   `POST /v1/regions` (or the `load_region` tool) runs Cloud Run Job `region-builder`
@@ -81,6 +81,14 @@ Scoring: 2025 features. Holdout is spatial (2 km blocks) to avoid neighbour leak
 - Data centres: `api/datacenter.py` combines WRI Aqueduct 4.0, GRACE, ERA5-Land, CHIRPS and
   OpenStreetMap partners (cached per region in GCS `symbiosis/region/<id>.json`; Overpass is flaky,
   so mirrors are tried in turn). Cooling water uses latent-heat physics; assumptions are returned.
+- Replenishment verification: `api/water.py`. Lake outline = JRC GSW max extent near the point; monthly
+  open water = Sentinel-1 VV < -16 dB inside it (2018-now), with Dynamic World water and Sentinel-2
+  NDVI > 0.5 green cover as the optical cross-check, and CHIRPS Jun-Sep rain. Hydrological years
+  (Jul-Jun) before vs after the intervention; the baseline peak is rain-scaled (elasticity 0.5,
+  capped at the pre-project max). Verdicts: verified / partial / at_risk / not_additional /
+  not_verified. Registry + series in BigQuery `water_projects` / `water_timeseries`
+  (`uv run python -m reroot.pipelines.seed_water_projects`); ad-hoc lakes cached in GCS `water/series/`.
+  Demo portfolio: sponsor and claims illustrative, satellite data real; Badkhal's revival is a real project.
 
 ## Deploy
 

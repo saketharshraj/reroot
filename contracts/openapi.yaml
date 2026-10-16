@@ -167,6 +167,18 @@ paths:
   /v1/alerts/{alert_id}/audio:
     get:
       summary: MP3 voice note in the caretaker's language
+  /v1/water/projects:
+    get:
+      summary: Registered water replenishment projects (lake revival, desilting) with satellite verdicts
+  /v1/water/projects/{project_id}:
+    get:
+      summary: One project's verification - monthly Sentinel-1 water area, optical cross-check, CHIRPS rain, hydrological-year metrics, verdict
+  /v1/water/ledger:
+    get:
+      summary: Replenishment ledger - target vs claimed vs satellite-verified m3/yr (optional ?target_m3_yr=)
+  /v1/water/verify:
+    post:
+      summary: Verify any lake or pond (body - lon, lat, intervention YYYY-MM, name?, depth_m?, claimed_m3_yr?); live, cached in GCS
   /pubsub/alerts:
     post:
       summary: Pub/Sub push endpoint (OIDC from pubsub-invoker). Processes one alert message.

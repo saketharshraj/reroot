@@ -24,6 +24,7 @@ from reroot.api import monitor as monitor_mod
 from reroot.api import plan as plan_mod
 from reroot.api import sites as sites_mod
 from reroot.api import verify as verify_mod
+from reroot.api import water as water_mod
 from reroot.core import config, layers as L, regions
 from reroot.core.clients import gemini, init_ee
 
@@ -42,6 +43,7 @@ def _warm_up() -> None:
                           "weights": dict(agent_mod.BASE_WEIGHTS), "region": config.DEFAULT_REGION})
         from reroot.api import policy
         policy.warm_snapshots()  # live fetch where possible, else the stored copies
+        water_mod.projects()
         logging.getLogger(__name__).info("warm-up done")
     except Exception:  # noqa: BLE001 - warm-up is best effort
         logging.getLogger(__name__).exception("warm-up failed")
@@ -262,6 +264,42 @@ def plantation_check(plantation_id: str):
     if not c:
         raise HTTPException(404, f"unknown plantation {plantation_id}")
     return c[0]
+
+
+@app.get("/v1/water/projects")
+def water_projects():
+    return water_mod.projects()
+
+
+@app.get("/v1/water/ledger")
+def water_ledger(target_m3_yr: float | None = None):
+    return water_mod.ledger(target_m3_yr)
+
+
+@app.get("/v1/water/projects/{project_id}")
+def water_project(project_id: str):
+    v = water_mod.verify(project_id)
+    if not v:
+        raise HTTPException(404, f"unknown water project {project_id}")
+    return v
+
+
+class WaterVerifyRequest(BaseModel):
+    lon: float
+    lat: float
+    intervention: str = Field(pattern=r"^\d{4}-\d{2}$", description="YYYY-MM the works finished")
+    name: str | None = None
+    depth_m: float = Field(default=water_mod.DEFAULT_DEPTH_M, gt=0, le=10)
+    claimed_m3_yr: float | None = None
+
+
+@app.post("/v1/water/verify")
+def water_verify(req: WaterVerifyRequest):
+    init_ee(high_volume=True)
+    r = water_mod.verify_adhoc(req.lon, req.lat, req.intervention, req.name, req.depth_m, req.claimed_m3_yr)
+    if r.get("error"):
+        raise HTTPException(404, r["error"])
+    return r
 
 
 class MonitorRunRequest(BaseModel):

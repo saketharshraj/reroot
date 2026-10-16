@@ -21,7 +21,7 @@ from typing import Iterator
 
 from google.genai import types
 
-from reroot.api import alerts, assess, datacenter, explore, monitor, plan, policy, sites
+from reroot.api import alerts, assess, datacenter, explore, monitor, plan, policy, sites, water
 from reroot.core import config, regions
 from reroot.core.clients import gemini, gen_config, init_ee
 
@@ -33,7 +33,7 @@ PRIORITIES = {"survival": "establishment", "water": "water", "connectivity": "co
               "people": "people", "terrain": "terrain"}
 BASE_WEIGHTS = {"establishment": 3, "water": 2, "connectivity": 2, "people": 1, "terrain": 1}
 
-TARGETS = ["project", "sites", "site", "plantations", "plantation", "place", "area", "datacenter"]
+TARGETS = ["project", "sites", "site", "plantations", "plantation", "place", "area", "datacenter", "water"]
 
 TOOLS = [
     {"name": "outline_steps", "description": "Before a request that needs 3 or more other tools, call this FIRST with the short steps you will take, so the user sees your plan.",
@@ -57,9 +57,10 @@ TOOLS = [
                                                     "radius_km": {"type": "number", "description": "default 2"}}}},
     {"name": "make_timelapse", "description": "Make a Sentinel-2 satellite timelapse (one frame per year, 2019-2026) of a target to show change. Adjustable: zoom (closer/normal/wider framing), size_px (256-1024), layer (true colour or NDVI vegetation), season (dry Jan-Apr or post-monsoon Oct-Dec), years. The user can download it as a GIF.",
      "parameters": {"type": "object", "properties": {
-         "target": {"type": "string", "enum": ["project", "site", "plantation", "area", "place"]},
+         "target": {"type": "string", "enum": ["project", "site", "plantation", "area", "place", "water"]},
          "rank": {"type": "integer", "description": "site rank when target=site"},
-         "plantation_id": {"type": "string"}, "start_year": {"type": "integer"}, "end_year": {"type": "integer"},
+         "plantation_id": {"type": "string"}, "water_project_id": {"type": "string", "description": "when target=water; omit for the last verified water body"},
+         "start_year": {"type": "integer"}, "end_year": {"type": "integer"},
          "zoom": {"type": "string", "enum": ["closer", "normal", "wider"]},
          "size_px": {"type": "integer", "description": "output width, 256-1024; larger = sharper but slower"},
          "layer": {"type": "string", "enum": ["true_colour", "ndvi"]},
@@ -68,7 +69,7 @@ TOOLS = [
     {"name": "show_on_map", "description": "Point the map at something you are talking about, optionally switching the satellite layer.",
      "parameters": {"type": "object", "properties": {
          "target": {"type": "string", "enum": TARGETS}, "rank": {"type": "integer"}, "plantation_id": {"type": "string"},
-         "layer": {"type": "string", "enum": LAYERS}}, "required": ["target"]}},
+         "water_project_id": {"type": "string"}, "layer": {"type": "string", "enum": LAYERS}}, "required": ["target"]}},
     {"name": "set_profile", "description": "Remember who the user is so answers fit their job. Call when they say who they are or what organisation they represent.",
      "parameters": {"type": "object", "properties": {
          "role": {"type": "string", "enum": ["developer", "forest_department", "ngo", "csr", "other"]},
@@ -93,6 +94,18 @@ TOOLS = [
      "parameters": {"type": "object", "properties": {"plantation_id": {"type": "string"}}, "required": ["plantation_id"]}},
     {"name": "send_field_alerts", "description": "Run the monitoring check and publish alerts (via Pub/Sub) for plantations that need action; caretakers get a voice note in Hindi. Omit plantation_id to check all.",
      "parameters": {"type": "object", "properties": {"plantation_id": {"type": "string"}}}},
+    {"name": "list_water_projects", "description": "List the water replenishment projects (lake revival, pond desilting, wetland restoration) funded to offset a data centre's water use, each with its satellite verdict: verified, partial, at_risk, not_additional, not_verified.",
+     "parameters": {"type": "object", "properties": {}}},
+    {"name": "verify_water_project", "description": "Check from space whether a water replenishment project really holds more water: monthly Sentinel-1 radar water area 2018-now inside the lake's outline, before vs after the intervention, scaled for monsoon rainfall, with an optical cross-check for weeds. Pass project_id for a registered project, or a place/coordinates plus the intervention month for any lake or pond in India.",
+     "parameters": {"type": "object", "properties": {
+         "project_id": {"type": "string", "description": "e.g. W1"},
+         "place": {"type": "string", "description": "lake or pond name, for one not in the registry"},
+         "lon": {"type": "number"}, "lat": {"type": "number"},
+         "intervention": {"type": "string", "description": "YYYY-MM the works finished (required for unregistered lakes; ask the user if unknown)"},
+         "depth_m": {"type": "number", "description": "storage depth used to turn extra area into volume, default 1.5"},
+         "claimed_m3_yr": {"type": "number"}}}},
+    {"name": "replenishment_ledger", "description": "Replenishment ledger for the sponsor's portfolio: target (120% of the data centre's freshwater use) vs claimed vs satellite-verified cubic metres per year, project by project. Uses the target of the data centre screened in this conversation if there is one.",
+     "parameters": {"type": "object", "properties": {"target_m3_yr": {"type": "number", "description": "override the target"}}}},
     {"name": "show_map_layer", "description": "Switch the map to a satellite layer: true_colour, ndvi (vegetation health), land_cover, similarity (AlphaEarth: land like the Mangar Bani forest), rainfall, slope.",
      "parameters": {"type": "object", "properties": {"layer": {"type": "string", "enum": LAYERS}}, "required": ["layer"]}},
 ]
@@ -117,6 +130,9 @@ STEP_INFO = {
     "check_plantation": ("Checking satellite health and live weather", ["Earth Engine", "BigQuery"]),
     "send_field_alerts": ("Checking risk and publishing field alerts", ["Pub/Sub", "Gemini", "Text-to-Speech"]),
     "show_map_layer": ("Switching the map layer", ["Earth Engine"]),
+    "list_water_projects": ("Loading replenishment projects and verdicts", ["BigQuery", "Earth Engine"]),
+    "verify_water_project": ("Measuring lake water month by month from radar", ["Earth Engine", "BigQuery"]),
+    "replenishment_ledger": ("Totting up claimed vs verified water", ["BigQuery"]),
 }
 
 SYSTEM = """You are ReRoot, an assistant that helps people in India plant trees where they will survive,
@@ -147,6 +163,15 @@ How to work:
 - Data centres and water: for siting/water questions use assess_datacenter_site. Explain the loop:
   treated wastewater in, clean power in, waste heat out to nearby users, replenishment through ponds
   and land restoration, and the 120% replenishment target. Quote its assumptions; it is screening-grade.
+- Replenishment verification: when someone asks whether water-positive or replenishment claims hold up,
+  or about a lake/pond project, use list_water_projects, verify_water_project and replenishment_ledger.
+  Say the verdict plainly and why (peak vs rain-expected, dry-season retention, green cover). Credited
+  volume is indicative: extra water area x an assumed depth; satellites can't see depth or water quality.
+  Open water comes from Sentinel-1 radar and green cover from Sentinel-2 optical imagery; both measure
+  surface AREA, not water level or volume. Quote the evidence numbers. For at_risk, say it needs a field check (floating weeds vs a dried, grown-over bed) and offer a
+  timelapse. The demo portfolio's sponsor and claimed volumes are illustrative; the satellite readings
+  are real, and Badkhal Lake's revival is a real public project. For a lake not in the registry you need
+  the month the works finished; ask if the user hasn't said.
 - Ecology: never suggest planting on farmland, natural grassland or wetlands; native species only;
   never Vilayati kikar (Prosopis juliflora).
 - Style: short and concrete. 2-5 sentences, then bullets if useful. Use hectares (ha), t CO2e and
@@ -164,7 +189,8 @@ How to work:
   [site 3](#site-3), [Pali scrubland block](#plantation-P3), [Mangar](#place-77.18,28.41),
   [the footprint](#project), [vegetation health](#layer-ndvi), [the plan](#view-plan),
   [the timelapse](#media), [the area analysis](#area), [plantation monitoring](#view-monitor),
-  [the data centre site](#datacenter).
+  [the data centre site](#datacenter), [Badkhal Lake](#water-W1) (registered projects by id;
+  a lake you checked that isn't registered is #water-adhoc), [the replenishment ledger](#view-water).
 - The UI already shows maps, cards, the plan document and alerts; don't repeat every number,
   highlight what matters and say where to look.
 
@@ -198,11 +224,17 @@ def _workspace_summary(ws: dict) -> str:
         a = ws["analysis"]
         s["area_analysis"] = {k: a.get(k) for k in ("name", "radius_km", "plantable_ha", "tree_cover_ha", "region_loaded")}
     if ws.get("media"):
-        s["last_timelapse"] = {k: ws["media"].get(k) for k in ("title", "target", "rank", "plantation_id", "zoom", "size_px",
+        s["last_timelapse"] = {k: ws["media"].get(k) for k in ("title", "target", "rank", "plantation_id", "water_project_id", "zoom", "size_px",
                                                                 "layer", "season", "years", "metres_per_pixel")}
     if ws.get("datacenter"):
         d = ws["datacenter"]
         s["datacenter"] = {"name": d.get("name"), "it_load_mw": d.get("it_load_mw"), "cooling": d.get("cooling")}
+    if ws.get("water_check"):
+        w = ws["water_check"]
+        s["last_water_check"] = {"project_id": w.get("project_id"), "name": w.get("name"),
+                                 "verdict": (w.get("evaluation") or {}).get("verdict")}
+    if ws.get("water_ledger"):
+        s["water_ledger"] = {k: ws["water_ledger"].get(k) for k in ("target_m3_yr", "claimed_pct_of_target", "verified_pct_of_target")}
     s["loaded_regions"] = [{"id": r["region_id"], "name": r["name"], "status": r["status"]} for r in regions.all_regions().values()]
     return json.dumps(s)
 
@@ -411,7 +443,69 @@ class Tools:
         return ({k: v for k, v in a.items() if k != "geometry"},
                 [{"type": "state", "patch": patch}, {"type": "ui", "view": "map", "focus": "area"}])
 
-    def _target_geoms(self, target, rank=None, plantation_id=None) -> tuple[list[dict], str]:
+    def list_water_projects(self):
+        ps = water.projects()
+        brief = [{k: p[k] for k in ("project_id", "name", "place", "intervention", "intervention_date", "verdict",
+                                    "evidence", "claimed_m3_yr", "credited_m3_yr", "is_demo")} for p in ps]
+        return ({"projects": brief, "sponsor": ps[0]["sponsor"] if ps else None},
+                [{"type": "state", "patch": {"water_projects": ps}}, {"type": "ui", "view": "water"}])
+
+    def verify_water_project(self, project_id=None, place=None, lon=None, lat=None, intervention=None,
+                             depth_m=None, claimed_m3_yr=None):
+        if project_id:
+            v = water.verify(str(project_id).upper())
+            if not v:
+                return {"error": f"unknown water project {project_id}; call list_water_projects"}, []
+        else:
+            name = place
+            if place and (lon is None or lat is None):
+                hits = explore.find_place(place)
+                if not hits:
+                    return {"error": f"'{place}' not found"}, []
+                lon, lat, name = hits[0]["lon"], hits[0]["lat"], hits[0]["name"]
+            if lon is None:
+                return {"error": "need project_id, or a lake name / coordinates"}, []
+            if not intervention:
+                return {"error": "need the month the works finished (YYYY-MM) to set the before/after split; ask the user"}, []
+            init_ee(high_volume=True)
+            v = water.verify_adhoc(float(lon), float(lat), str(intervention)[:7], name, float(depth_m or water.DEFAULT_DEPTH_M),
+                                   claimed_m3_yr)
+            if v.get("error"):
+                return v, []
+        self.ws["water_check"] = v
+        ev = v["evaluation"]
+        brief = {k: v.get(k) for k in ("project_id", "name", "place", "intervention", "intervention_date", "outline_ha",
+                                       "claimed_m3_yr", "is_demo", "notes")}
+        brief |= {k: ev.get(k) for k in ("verdict", "verdict_text", "note", "baseline_years", "baseline", "judged_year",
+                                         "recent", "credited_m3_yr", "radar_optical_agreement", "assumptions")}
+        brief["post_years"] = [{k: h.get(k) for k in ("label", "peak_ha", "expected_peak_ha", "dry_ha", "dry_gain_ha",
+                                                      "wet_months", "monsoon_rain_mm", "rain_vs_baseline", "green_dry_share")}
+                               for h in ev["years"] if h["label"] in ev.get("post_years", [])]
+        return brief, [{"type": "state", "patch": {"water_check": v}},
+                       {"type": "ui", "view": "water", "focus": "water", "water_project_id": v.get("project_id") or "adhoc"}]
+
+    def replenishment_ledger(self, target_m3_yr=None):
+        source = None
+        dc = (self.ws.get("datacenter") or {}).get("chosen") or {}
+        if not target_m3_yr and dc.get("replenishment_target_m3"):
+            target_m3_yr = dc["replenishment_target_m3"]
+            source = f"120% of freshwater use for {self.ws['datacenter'].get('name') or 'the screened site'} (this conversation)"
+        led = water.ledger(target_m3_yr, target_source=source or ("user-supplied" if target_m3_yr else None))
+        if led.get("error"):
+            return led, []
+        self.ws["water_ledger"] = led
+        return ({k: v for k, v in led.items() if k != "sources"},
+                [{"type": "state", "patch": {"water_ledger": led, "water_projects": water.projects()}}, {"type": "ui", "view": "water"}])
+
+    def _water_target(self, water_project_id=None) -> dict | None:
+        if water_project_id:
+            return water.verify(str(water_project_id).upper())
+        return self.ws.get("water_check")
+
+    def _target_geoms(self, target, rank=None, plantation_id=None, water_project_id=None) -> tuple[list[dict], str]:
+        if target == "water":
+            w = self._water_target(water_project_id)
+            return ([w["geometry"]], w["name"]) if w else ([], "")
         if target == "project" and self.ws.get("project"):
             return [self.ws["project"]], self.ws.get("project_name") or "Project footprint"
         if target == "site" and self.ws.get("sites"):
@@ -430,21 +524,22 @@ class Tools:
         return [], ""
 
     def make_timelapse(self, target: str, rank=None, plantation_id=None, start_year=2019, end_year=2026,
-                       zoom="normal", size_px=520, layer="true_colour", season="dry"):
-        geoms, title = self._target_geoms(target, rank, plantation_id)
+                       zoom="normal", size_px=520, layer="true_colour", season="dry", water_project_id=None):
+        geoms, title = self._target_geoms(target, rank, plantation_id, water_project_id)
         if not geoms:
             return {"error": f"nothing to show for target '{target}' yet"}, []
         init_ee(high_volume=True)
         m = explore.timelapse(geoms, title, start_year or 2019, end_year or 2026, zoom or "normal",
                               size_px or 520, layer or "true_colour", season or "dry")
-        m = m | {"target": target, "rank": rank, "plantation_id": plantation_id}  # so "zoom in" can redo the same target
+        m = m | {"target": target, "rank": rank, "plantation_id": plantation_id,  # so "zoom in" can redo the same target
+                 "water_project_id": water_project_id or (self.ws.get("water_check") or {}).get("project_id") if target == "water" else None}
         self.ws["media"] = m
         return ({"ok": True} | {k: m[k] for k in ("title", "years", "zoom", "size_px", "layer", "season",
                                                    "metres_per_pixel", "native_resolution_m")},
-                [{"type": "state", "patch": {"media": m}}] + self._focus_events(target, rank, plantation_id))
+                [{"type": "state", "patch": {"media": m}}] + self._focus_events(target, rank, plantation_id, water_project_id=water_project_id))
 
-    def _focus_events(self, target, rank=None, plantation_id=None, layer=None) -> list[dict]:
-        ev: dict = {"type": "ui", "view": "monitor" if target.startswith("plantation") else "map"}
+    def _focus_events(self, target, rank=None, plantation_id=None, layer=None, water_project_id=None) -> list[dict]:
+        ev: dict = {"type": "ui", "view": "monitor" if target.startswith("plantation") else "water" if target == "water" else "map"}
         if layer:
             ev["layer"] = layer
         if target == "site":
@@ -458,10 +553,12 @@ class Tools:
             ev["focus"] = "assess"
         elif target in ("place", "area", "datacenter"):
             ev["focus"] = target
+        elif target == "water":
+            ev |= {"focus": "water", "water_project_id": water_project_id or (self.ws.get("water_check") or {}).get("project_id")}
         return [ev]
 
-    def show_on_map(self, target: str, rank=None, plantation_id=None, layer=None):
-        return {"ok": True}, self._focus_events(target, rank, plantation_id, layer)
+    def show_on_map(self, target: str, rank=None, plantation_id=None, layer=None, water_project_id=None):
+        return {"ok": True}, self._focus_events(target, rank, plantation_id, layer, water_project_id)
 
     def show_map_layer(self, layer: str):
         return {"ok": True}, [{"type": "ui", "view": "map", "layer": layer}]

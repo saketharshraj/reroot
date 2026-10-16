@@ -6,7 +6,8 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { TerraDraw, TerraDrawPolygonMode } from "terra-draw";
 import { TerraDrawMapLibreGLAdapter } from "terra-draw-maplibre-gl-adapter";
-import type { AreaAnalysis, DataCentre, Geometry, Place, Plantation, RegionInfo, Site } from "./api";
+import type { AreaAnalysis, DataCentre, Geometry, Place, Plantation, RegionInfo, Site, WaterProject } from "./api";
+import { VERDICT_COLOR } from "./WaterPanel";
 
 maplibregl.setWorkerUrl(workerUrl);
 
@@ -14,7 +15,7 @@ const BASEMAP = "https://tiles.openfreemap.org/styles/positron";
 const EMPTY: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 const fc = (features: GeoJSON.Feature[]): GeoJSON.FeatureCollection => ({ type: "FeatureCollection", features });
 
-export interface MapFocus { kind: "project" | "sites" | "site" | "plantations" | "plantation" | "place" | "area" | "point" | "datacenter" | "region"; id?: string; lonlat?: [number, number]; nonce: number }
+export interface MapFocus { kind: "project" | "sites" | "site" | "plantations" | "plantation" | "place" | "area" | "point" | "datacenter" | "region" | "water" | "waters"; id?: string; lonlat?: [number, number]; nonce: number }
 
 interface Props {
   tileUrl: string | null;
@@ -29,11 +30,14 @@ interface Props {
   analysis: AreaAnalysis | null;
   datacenter: DataCentre | null;
   regions: RegionInfo[];
+  waters: WaterProject[];
+  selectedWaterId: string | null;
   drawing: boolean;
   focus: MapFocus | null;
   onDrawFinish: (g: Geometry) => void;
   onSiteClick: (id: string) => void;
   onPlantationClick: (id: string) => void;
+  onWaterClick: (id: string) => void;
 }
 
 function bounds(geoms: Geometry[]) {
@@ -84,6 +88,19 @@ export function StudioMap(p: Props) {
       m.addLayer({
         id: "plantations-label", type: "symbol", source: "plantations",
         layout: { "text-field": ["get", "label"], "text-size": 12, "text-font": ["Noto Sans Bold"], "text-offset": [0, 0], "text-allow-overlap": false },
+        paint: { "text-color": "#0f172a", "text-halo-color": "#ffffff", "text-halo-width": 2 },
+      });
+
+      m.addSource("waters", { type: "geojson", data: EMPTY });
+      m.addLayer({ id: "waters-fill", type: "fill", source: "waters", paint: { "fill-color": ["get", "color"], "fill-opacity": 0.22 } });
+      m.addLayer({ id: "waters-line", type: "line", source: "waters", paint: { "line-color": ["get", "color"], "line-width": 2 } });
+      m.addLayer({
+        id: "waters-selected", type: "line", source: "waters", filter: ["==", ["get", "id"], ""],
+        paint: { "line-color": "#0f172a", "line-width": 3 },
+      });
+      m.addLayer({
+        id: "waters-label", type: "symbol", source: "waters",
+        layout: { "text-field": ["get", "label"], "text-size": 12, "text-font": ["Noto Sans Bold"], "text-allow-overlap": false },
         paint: { "text-color": "#0f172a", "text-halo-color": "#ffffff", "text-halo-width": 2 },
       });
 
@@ -162,6 +179,7 @@ export function StudioMap(p: Props) {
       for (const [layer, handler] of [
         ["sites-fill", (id: string) => cb.current.onSiteClick(id)],
         ["plantations-fill", (id: string) => cb.current.onPlantationClick(id)],
+        ["waters-fill", (id: string) => cb.current.onWaterClick(id)],
       ] as const) {
         m.on("click", layer, (e) => {
           const id = e.features?.[0]?.properties?.id;
@@ -192,7 +210,11 @@ export function StudioMap(p: Props) {
   function sync() {
     const m = map.current;
     if (!m || !ready.current) return;
-    const { tileUrl, opacity, project, sites, selectedSiteId, plantations, selectedPlantationId, showPlantations, place, analysis, datacenter, regions } = cb.current;
+    const { tileUrl, opacity, project, sites, selectedSiteId, plantations, selectedPlantationId, showPlantations, place, analysis, datacenter, regions, waters, selectedWaterId } = cb.current;
+    (m.getSource("waters") as GeoJSONSource).setData(fc(waters.map((w) => ({
+      type: "Feature", properties: { id: w.project_id ?? "adhoc", label: w.name, color: VERDICT_COLOR[w.verdict ?? "too_early"] }, geometry: w.geometry,
+    }))));
+    m.setFilter("waters-selected", ["==", ["get", "id"], selectedWaterId ?? ""]);
     (m.getSource("regions") as GeoJSONSource).setData(fc(regions.filter((r) => !r.built_in || r.status !== "ready").map((r) => {
       const [w, so, e, n] = r.bbox;
       return { type: "Feature", properties: { status: r.status }, geometry: { type: "Polygon", coordinates: [[[w, so], [e, so], [e, n], [w, n], [w, so]]] } };
@@ -227,7 +249,7 @@ export function StudioMap(p: Props) {
     m.setFilter("plantations-selected", ["==", ["get", "id"], selectedPlantationId ?? ""]);
   }
 
-  useEffect(sync, [p.tileUrl, p.opacity, p.project, p.sites, p.selectedSiteId, p.plantations, p.selectedPlantationId, p.showPlantations, p.place, p.analysis, p.datacenter, p.regions]);
+  useEffect(sync, [p.tileUrl, p.opacity, p.project, p.sites, p.selectedSiteId, p.plantations, p.selectedPlantationId, p.showPlantations, p.place, p.analysis, p.datacenter, p.regions, p.waters, p.selectedWaterId]);
 
   useEffect(() => {
     draw.current?.setMode(p.drawing ? "polygon" : "static");
@@ -244,6 +266,8 @@ export function StudioMap(p: Props) {
     if (f.kind === "plantations") geoms = p.plantations.map((x) => x.geometry);
     if (f.kind === "plantation") geoms = p.plantations.filter((x) => x.plantation_id === f.id).map((x) => x.geometry);
     if (f.kind === "area" && p.analysis) geoms = [p.analysis.geometry];
+    if (f.kind === "waters") geoms = p.waters.map((w) => w.geometry);
+    if (f.kind === "water") geoms = p.waters.filter((w) => (w.project_id ?? "adhoc") === f.id).map((w) => w.geometry);
     if (f.kind === "datacenter" && p.datacenter) {
       const pts: [number, number][] = [p.datacenter.site, ...p.datacenter.flows.map((fl) => {
         const o = (typeof fl.from === "string" ? fl.to : fl.from) as { lon: number; lat: number };
@@ -265,7 +289,7 @@ export function StudioMap(p: Props) {
       return;
     }
     const b = bounds(geoms);
-    if (b) m.fitBounds(b, { padding: { top: 80, bottom: 60, left: 60, right: 420 }, maxZoom: f.kind === "site" || f.kind === "plantation" ? 15 : 13.5, duration: 900 });
+    if (b) m.fitBounds(b, { padding: { top: 80, bottom: 60, left: 60, right: 420 }, maxZoom: f.kind === "site" || f.kind === "plantation" || f.kind === "water" ? 15 : 13.5, duration: 900 });
   }, [p.focus?.nonce]);
 
   return <div ref={el} className="map" />;

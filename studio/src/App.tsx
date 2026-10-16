@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, chat, type AgentEvent, type Geometry, type LayerId, type RegionInfo, type Role, type Workspace } from "./api";
+import { api, chat, type AgentEvent, type Geometry, type LayerId, type RegionInfo, type Role, type WaterCheck, type WaterProject, type Workspace } from "./api";
 import { Chat, ROLES, type Message } from "./Chat";
 import { FieldPhone } from "./FieldPhone";
 import { areaHa, readFootprint } from "./geo";
@@ -9,8 +9,9 @@ import { MediaCard, PlanDoc, PlanEmpty } from "./PlanDoc";
 import { ResultsPanel } from "./ResultsPanel";
 import { StudioMap, type MapFocus } from "./StudioMap";
 import { Icon } from "./ui";
+import { WaterPanel } from "./WaterPanel";
 
-type View = "map" | "plan" | "monitor";
+type View = "map" | "plan" | "monitor" | "water";
 
 const LAYERS: { id: LayerId; label: string }[] = [
   { id: "true_colour", label: "Satellite" },
@@ -50,6 +51,8 @@ export default function App() {
   const [drawing, setDrawing] = useState(false);
   const [selectedSite, setSelectedSite] = useState<string | null>(initial.ws.sites?.[0]?.site_id ?? null);
   const [selectedPlantation, setSelectedPlantation] = useState<string | null>(null);
+  const [selectedWater, setSelectedWater] = useState<string | null>(initial.ws.water_check ? initial.ws.water_check.project_id ?? "adhoc" : null);
+  const [waterDetail, setWaterDetail] = useState<Record<string, WaterCheck>>({});
   const [focus, setFocus] = useState<MapFocus | null>(null);
   const [mediaOpen, setMediaOpen] = useState(false);
   const [phone, setPhone] = useState<{ open: boolean; since: number | null; plantation: string | null }>({ open: false, since: null, plantation: null });
@@ -99,7 +102,9 @@ export default function App() {
   }, [loading]);
 
   // Imagery follows the conversation: the loaded region around the current place, else a box around it.
-  const focusPoint: [number, number] | null = ws.datacenter?.site ?? (ws.place ? [ws.place.lon, ws.place.lat] : null);
+  const waterPoint = view === "water" ? (ws.water_projects ?? []).find((w) => w.project_id === selectedWater) ?? (selectedWater === "adhoc" ? ws.water_check : null) : null;
+  const focusPoint: [number, number] | null = waterPoint ? [waterPoint.lon, waterPoint.lat]
+    : ws.datacenter?.site ?? (ws.place ? [ws.place.lon, ws.place.lat] : null);
   const area = useMemo(() => {
     if (!focusPoint) return { key: "default", spec: {} as { region?: string; bbox?: number[] } };
     const [lon, lat] = focusPoint;
@@ -108,7 +113,7 @@ export default function App() {
     const d = 0.12;  // ~25 km box
     const bbox = [lon - d, lat - d, lon + d, lat + d];
     return { key: bbox.map((x) => x.toFixed(2)).join(","), spec: { bbox } };
-  }, [focusPoint?.[0], focusPoint?.[1], regions]);
+  }, [focusPoint?.[0], focusPoint?.[1], regions]);  // eslint-disable-line react-hooks/exhaustive-deps
   const tileKey = `${layer}@${area.key}` as LayerId;
 
   useEffect(() => {
@@ -124,6 +129,30 @@ export default function App() {
       }).catch(() => {});
     }
   }, [view, phone.open]);
+
+  // Water view: load the portfolio and ledger once, then the selected project's monthly series.
+  useEffect(() => {
+    if (view !== "water") return;
+    if (!ws.water_projects?.length) api.waterProjects().then((ps) => {
+      setWs((w) => ({ ...w, water_projects: ps }));
+      setSelectedWater((cur) => cur ?? ps[0]?.project_id ?? null);
+      if (selectedWater) focusOn("water", selectedWater); else focusOn("waters");
+    }).catch(() => {});
+    else focusOn(selectedWater ? "water" : "waters", selectedWater ?? undefined);
+    if (!ws.water_ledger) api.waterLedger().then((l) => setWs((w) => ({ ...w, water_ledger: l }))).catch(() => {});
+  }, [view]);
+  useEffect(() => {
+    if (!selectedWater || selectedWater === "adhoc" || waterDetail[selectedWater] || ws.water_check?.project_id === selectedWater) return;
+    api.waterProject(selectedWater).then((d) => setWaterDetail((m) => ({ ...m, [selectedWater]: d }))).catch(() => {});
+  }, [selectedWater]);
+  const waterSel: WaterCheck | null = !selectedWater ? null
+    : selectedWater === "adhoc" || ws.water_check?.project_id === selectedWater ? ws.water_check ?? null
+    : waterDetail[selectedWater] ?? null;
+  const waters: WaterProject[] = view !== "water" ? [] : [
+    ...(ws.water_projects ?? []),
+    ...(ws.water_check && !(ws.water_projects ?? []).some((w) => w.project_id === ws.water_check!.project_id)
+      ? [{ ...ws.water_check, verdict: ws.water_check.evaluation.verdict }] : []),
+  ];
 
   useEffect(() => {
     if (ws.project) focusOn(ws.sites?.length ? "sites" : "project");
@@ -158,6 +187,7 @@ export default function App() {
         if (e.patch.sites?.length) setSelectedSite(e.patch.sites[0].site_id);
         if (e.patch.plantation_check) setSelectedPlantation(e.patch.plantation_check.plantation_id);
         if (e.patch.media) setMediaOpen(true);
+        if (e.patch.water_check) setSelectedWater(e.patch.water_check.project_id ?? "adhoc");
         break;
       case "ui":
         if (e.layer) setLayer(e.layer);
@@ -173,6 +203,11 @@ export default function App() {
           else if (e.focus === "area") focusOn("area");
           else if (e.focus === "datacenter") focusOn("datacenter");
           else if (e.focus === "assess" || !e.layer) focusOn("project");
+        }
+        if (e.view === "water") {
+          const id = e.water_project_id ?? (e.focus === "water" ? "adhoc" : null);
+          if (e.focus === "water" && id) (setSelectedWater(id), focusOn("water", id));
+          else focusOn("waters");
         }
         if (e.view === "monitor") {
           if (e.plantation_id) (setSelectedPlantation(e.plantation_id), focusOn("plantation", e.plantation_id));
@@ -203,6 +238,9 @@ export default function App() {
       profile: profileOverride ?? ws.profile, project: ws.project, project_name: ws.project_name,
       assess: ws.assess, sites: ws.sites, plan_id: ws.plan_id, place: ws.place, analysis: ws.analysis,
       media: ws.media, datacenter: ws.datacenter ? { ...ws.datacenter, partners: [] } : null,
+      // the agent only needs which lake was last checked (for "show a timelapse of it") and the ledger totals
+      water_check: ws.water_check ? { ...ws.water_check, series: [], evaluation: { ...ws.water_check.evaluation, years: [] } } : null,
+      water_ledger: ws.water_ledger ? { ...ws.water_ledger, sources: [] } : null,
     };
     try {
       await chat(text, history, payload, (e) => handle(aid, e), ctrl.signal);
@@ -231,7 +269,12 @@ export default function App() {
       }
     }
     if (kind === "layer" && LAYER_IDS.includes(arg)) return (setView("map"), setLayer(arg as LayerId));
-    if (kind === "view" && ["map", "plan", "monitor"].includes(arg)) return setView(arg as View);
+    if (kind === "view" && ["map", "plan", "monitor", "water"].includes(arg)) return setView(arg as View);
+    if (kind === "water" && arg) {
+      const id = ws.water_projects?.some((w) => w.project_id === arg) || ws.water_check?.project_id === arg ? arg
+        : ws.water_check && !ws.water_check.project_id ? "adhoc" : arg;
+      return (setView("water"), setSelectedWater(id), focusOn("water", id));
+    }
     if (href === "project" && ws.project) return (setView("map"), focusOn("project"));
     if (href === "media" && ws.media) return setMediaOpen(true);
     if (href === "area" && ws.analysis) return (setView("map"), focusOn("area"));
@@ -254,6 +297,7 @@ export default function App() {
     setWs(c.workspace);
     setView((c.view as View) ?? "map");
     setSelectedSite(c.workspace.sites?.[0]?.site_id ?? null);
+    setSelectedWater(c.workspace.water_check ? c.workspace.water_check.project_id ?? "adhoc" : null);
     setMediaOpen(false);
     if (c.workspace.project) focusOn(c.workspace.sites?.length ? "sites" : "project");
   }
@@ -266,6 +310,7 @@ export default function App() {
     setView("map");
     setSelectedSite(null);
     setSelectedPlantation(null);
+    setSelectedWater(null);
     setMediaOpen(false);
     setPhone({ open: false, since: null, plantation: null });
   }
@@ -273,15 +318,18 @@ export default function App() {
   const suggestions = useMemo(() => {
     if (!messages.length) return [];
     if (ws.plan && view === "plan") return ["What do the rules say about planting on degraded forest land?", "How are our existing plantations doing?"];
+    if (view === "water") return waterSel
+      ? [`Why is ${waterSel.name} rated this way?`, `Show a timelapse of ${waterSel.name}`, "How could we close the replenishment gap?"]
+      : ["Which replenishment projects are actually working?", "Show the replenishment ledger"];
     if (ws.plantations?.length && view === "monitor") return ["Check the Pali scrubland block", "Show a timelapse of the Bandhwari ridge restoration", "Alert caretakers wherever action is needed"];
     if (ws.sites?.length) return ["Write the compensatory planting plan", "Why is site 1 ranked first?", "Show a timelapse of site 1", "What do the rules say about planting on degraded forest land?"];
     if (ws.assess) return ["Find planting sites, avoid farmland, prioritise survival", "Find sites within 10 km that reconnect forest"];
-    if (ws.datacenter) return ["What if we use hybrid cooling instead?", "What do the rules say about using treated wastewater?", "Show a closer timelapse of the site"];
+    if (ws.datacenter) return ["Are our replenishment projects actually holding water?", "What if we use hybrid cooling instead?", "What do the rules say about using treated wastewater?", "Show a closer timelapse of the site"];
     if (ws.media) return ["Make the timelapse closer and sharper", "Show it as vegetation health (NDVI)", "Show the post-monsoon season instead"];
     if (ws.analysis) return ["Show a timelapse of this area", "Find planting sites near here"];
     if (ws.project) return ["What will this footprint clear?"];
     return ["Use the demo bypass", "Screen a 50 MW data centre near Gwal Pahari for water risk", "What's the land like within 2 km of Mangar village?"];
-  }, [messages.length, ws.project, ws.assess, ws.sites, ws.plan, ws.plantations, ws.analysis, view]);
+  }, [messages.length, ws.project, ws.assess, ws.sites, ws.plan, ws.plantations, ws.analysis, ws.datacenter, view, waterSel?.name]);
 
   const role = ws.profile?.role ?? null;
   const footprint = ws.project ? { name: ws.project_name ?? "Footprint", area_ha: ws.assess?.area_ha ?? areaHa(ws.project) } : null;
@@ -294,7 +342,7 @@ export default function App() {
           <b>ReRoot</b><span className="brand-sub">Studio</span>
         </div>
         <nav className="views" aria-label="Views">
-          {([["map", "map", "Map"], ["plan", "doc", "Plan"], ["monitor", "pulse", "Monitor"]] as const).map(([id, icon, label]) => (
+          {([["map", "map", "Map"], ["plan", "doc", "Plan"], ["monitor", "pulse", "Monitor"], ["water", "drop", "Water"]] as const).map(([id, icon, label]) => (
             <button key={id} className={view === id ? "on" : ""} onClick={() => setView(id)}>
               <Icon name={icon} size={15} />{label}
               {id === "plan" && ws.plan && <span className="dot-new" aria-label="plan ready" />}
@@ -342,21 +390,24 @@ export default function App() {
         <StudioMap
           tileUrl={tiles[tileKey] ?? tiles[layer] ?? null}
           opacity={0.92}
-          project={view === "monitor" ? null : ws.project ?? null}
-          sites={view === "monitor" ? [] : ws.sites ?? []}
+          project={view === "monitor" || view === "water" ? null : ws.project ?? null}
+          sites={view === "monitor" || view === "water" ? [] : ws.sites ?? []}
           selectedSiteId={selectedSite}
           plantations={ws.plantations ?? []}
           selectedPlantationId={selectedPlantation}
           showPlantations={view === "monitor"}
           place={ws.place ?? null}
-          analysis={view === "monitor" ? null : ws.analysis ?? null}
-          datacenter={view === "monitor" ? null : ws.datacenter ?? null}
+          analysis={view === "monitor" || view === "water" ? null : ws.analysis ?? null}
+          datacenter={view === "monitor" || view === "water" ? null : ws.datacenter ?? null}
           regions={regions}
+          waters={waters}
+          selectedWaterId={selectedWater}
           drawing={drawing}
           focus={focus}
           onDrawFinish={(g) => { setDrawing(false); setFootprint(g, "Drawn footprint"); }}
           onSiteClick={(id) => { setSelectedSite(id); setView("map"); }}
           onPlantationClick={(id) => { setSelectedPlantation(id); setView("monitor"); }}
+          onWaterClick={(id) => setSelectedWater(id)}
         />
 
         {view !== "plan" && (
@@ -379,6 +430,18 @@ export default function App() {
               selectedId={selectedPlantation}
               check={ws.plantation_check ?? null}
               onSelect={(id) => { setSelectedPlantation(id); focusOn("plantation", id); }}
+              onAsk={(t) => send(t)}
+            />
+          </div>
+        )}
+        {view === "water" && (
+          <div className="side">
+            <WaterPanel
+              projects={ws.water_projects ?? []}
+              ledger={ws.water_ledger ?? null}
+              selectedId={selectedWater}
+              detail={waterSel}
+              onSelect={(id) => { setSelectedWater(id); focusOn("water", id); }}
               onAsk={(t) => send(t)}
             />
           </div>
