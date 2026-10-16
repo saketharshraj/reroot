@@ -295,6 +295,16 @@ def _brief(p: dict) -> dict:
                                   "outline_ha", "depth_m", "claimed_m3_yr", "is_demo", "notes", "references", "lon", "lat")}
 
 
+def match(name: str) -> str | None:
+    """Registered project whose name shares a distinctive word with `name` (e.g. "Damdama lake" -> W3)."""
+    generic = {"lake", "jheel", "pond", "talab", "wetland", "the", "revival", "restoration", "desilting", "project"}
+    words = {w for w in name.lower().replace(",", " ").split() if w not in generic and len(w) > 2}
+    for pid, p in _registry()["projects"].items():
+        if words & set(p["name"].lower().split()):
+            return pid
+    return None
+
+
 def project_series(project_id: str) -> list[dict]:
     return _registry()["series"].get(project_id, [])
 

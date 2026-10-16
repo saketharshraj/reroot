@@ -235,6 +235,10 @@ def _workspace_summary(ws: dict) -> str:
                                  "verdict": (w.get("evaluation") or {}).get("verdict")}
     if ws.get("water_ledger"):
         s["water_ledger"] = {k: ws["water_ledger"].get(k) for k in ("target_m3_yr", "claimed_pct_of_target", "verified_pct_of_target")}
+    try:  # registered replenishment projects, so a lake named in passing maps to its id
+        s["water_projects"] = [{"id": k, "name": v["name"]} for k, v in water._registry()["projects"].items()]
+    except Exception:  # noqa: BLE001
+        pass
     s["loaded_regions"] = [{"id": r["region_id"], "name": r["name"], "status": r["status"]} for r in regions.all_regions().values()]
     return json.dumps(s)
 
@@ -452,6 +456,8 @@ class Tools:
 
     def verify_water_project(self, project_id=None, place=None, lon=None, lat=None, intervention=None,
                              depth_m=None, claimed_m3_yr=None):
+        if not project_id and place and not intervention:
+            project_id = water.match(place)  # a registered project named in passing
         if project_id:
             v = water.verify(str(project_id).upper())
             if not v:
