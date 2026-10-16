@@ -4,12 +4,13 @@
 
 | What | URL | How it deploys |
 |---|---|---|
-| ReRoot Studio (product) | https://reroot-studio-alpha.vercel.app | Vercel, on push to `main` touching `studio/` (once Git is connected; until then `vercel deploy --prod` in `studio/`) |
-| Data Lab (internal) | https://reroot-lab.vercel.app | Vercel, on push touching `web/` (same) |
-| API on Render (primary, used by both frontends) | https://reroot-api.onrender.com | Render auto-deploy on push touching `src/`, `pyproject.toml`, `uv.lock`, `Dockerfile` |
+| ReRoot Studio (product) | https://reroot-studio-alpha.vercel.app | Vercel Git integration, on push to `main` touching `studio/` (root dir `studio`) |
+| Data Lab (internal) | https://reroot-lab.vercel.app | Vercel Git integration, on push to `main` touching `web/` (root dir `web`) |
+| API on Render Starter (primary, used by both frontends) | https://reroot-api.onrender.com | Render auto-deploy on push touching `src/`, `pyproject.toml`, `uv.lock`, `Dockerfile` |
 | API on Cloud Run (Pub/Sub alert worker + backup) | https://api-152511810602.us-central1.run.app | GitHub Actions `.github/workflows/deploy-cloudrun.yml` on the same backend paths (keyless, Workload Identity Federation) |
 
-Pub/Sub pushes alerts to Cloud Run; both APIs read and write the same BigQuery/GCS, so alerts
+Pushes to other paths (docs, contracts) deploy nothing. Manual redeploys: Vercel/Render dashboards
+or `gh workflow run deploy-cloudrun.yml`. Pub/Sub pushes alerts to Cloud Run; both APIs read and write the same BigQuery/GCS, so alerts
 published from Render show up in Studio either way.
 
 ## Backend on Render
