@@ -354,6 +354,10 @@ class Tools:
             else:
                 return {"error": "need a place or coordinates"}, []
         existing = regions.containing(float(lon), float(lat), ready_only=False)
+        if existing and regions.spec(existing)["status"] == "failed":
+            regions.start_build(existing)  # retry a failed build
+            pub = regions.public(regions.spec(existing)) | {"id": existing}
+            return {"region": pub, "note": "Previous build failed; retrying now."}, [{"type": "region", "region": pub}]
         if existing:
             r = regions.spec(existing)
             return {"region": regions.public(r), "note": "already loaded or loading"}, [{"type": "region", "region": regions.public(r) | {"id": existing}}]

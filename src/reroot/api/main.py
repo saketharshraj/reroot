@@ -109,6 +109,9 @@ class RegionRequest(BaseModel):
 @app.post("/v1/regions")
 def create_region(req: RegionRequest):
     existing = regions.containing(req.lon, req.lat, ready_only=False)
+    if existing and regions.spec(existing)["status"] == "failed":
+        regions.start_build(existing)  # retry a failed build
+        return {"id": existing, **regions.public(regions.spec(existing)), "retried": True}
     if existing:
         return {"id": existing, **regions.public(regions.spec(existing)), "already_exists": True}
     r = regions.create(req.name, req.lon, req.lat, req.size_km)

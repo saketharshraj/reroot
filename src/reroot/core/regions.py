@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS `{TABLE}` (
 
 def utm_for(lon: float, lat: float) -> str:
     zone = int((lon + 180) // 6) + 1
-    return f"EPSG:{32600 if lat >= 0 else 32700}{zone:02d}"
+    return f"EPSG:{(32600 if lat >= 0 else 32700) + zone}"  # e.g. 32643 = WGS 84 / UTM 43N
 
 
 def _built_in() -> dict[str, dict]:
