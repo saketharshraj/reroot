@@ -2,15 +2,15 @@
 
 ## Live
 
-| What | URL | Deploys |
+| What | URL | How it deploys |
 |---|---|---|
-| ReRoot Studio (product) | https://reroot-studio-alpha.vercel.app | `vercel deploy --prod` in `studio/` |
-| Data Lab (internal) | https://reroot-lab.vercel.app | `vercel deploy --prod` in `web/` |
-| API on Cloud Run (primary) | https://api-152511810602.us-central1.run.app | `infra/deploy.sh` |
-| API on Render (backup) | https://reroot-api.onrender.com | auto on push to `main` (needs the key, below) |
+| ReRoot Studio (product) | https://reroot-studio-alpha.vercel.app | Vercel, on push to `main` touching `studio/` (once Git is connected; until then `vercel deploy --prod` in `studio/`) |
+| Data Lab (internal) | https://reroot-lab.vercel.app | Vercel, on push touching `web/` (same) |
+| API on Render (primary, used by both frontends) | https://reroot-api.onrender.com | Render auto-deploy on push touching `src/`, `pyproject.toml`, `uv.lock`, `Dockerfile` |
+| API on Cloud Run (Pub/Sub alert worker + backup) | https://api-152511810602.us-central1.run.app | GitHub Actions `.github/workflows/deploy-cloudrun.yml` on the same backend paths (keyless, Workload Identity Federation) |
 
-Frontend on **Vercel**, backend on **Render** (free) or **Cloud Run** (already live). Both
-backends run the same Docker image.
+Pub/Sub pushes alerts to Cloud Run; both APIs read and write the same BigQuery/GCS, so alerts
+published from Render show up in Studio either way.
 
 ## Backend on Render
 
