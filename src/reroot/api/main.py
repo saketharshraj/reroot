@@ -41,6 +41,8 @@ def _warm_up() -> None:
         sites_mod.search({"project_geometry": demo, "area_ha_needed": float(a["offset_required_ha"]), "radius_km": 15.0,
                           "exclude": ["farmland", "built", "water", "grassland", "steep"],
                           "weights": dict(agent_mod.BASE_WEIGHTS), "region": config.DEFAULT_REGION})
+        from reroot.api import policy
+        policy.warm_snapshots()  # live fetch where possible, else the stored copies
         logging.getLogger(__name__).info("warm-up done")
     except Exception:  # noqa: BLE001 - warm-up is best effort
         logging.getLogger(__name__).exception("warm-up failed")
@@ -195,6 +197,15 @@ def make_plan(req: PlanRequest):
 def plan_map(plan_id: str):
     data = alerts_mod._bucket().blob(f"plans/{plan_id}.jpg").download_as_bytes()
     return Response(data, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.get("/v1/media/{name}")
+def media(name: str):
+    if not name.replace(".", "").replace("-", "").isalnum():
+        raise HTTPException(400, "bad name")
+    data = alerts_mod._bucket().blob(f"media/{name}").download_as_bytes()
+    return Response(data, media_type="image/gif" if name.endswith(".gif") else "application/octet-stream",
+                    headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.get("/v1/plantations")

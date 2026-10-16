@@ -16,6 +16,12 @@ const PATHS: Record<string, string> = {
   layers: "m12 2 10 5-10 5L2 7Z M2 17l10 5 10-5 M2 12l10 5 10-5",
   drop: "M12 2.7s7 7.3 7 12.3a7 7 0 0 1-14 0c0-5 7-12.3 7-12.3Z",
   arrow: "M5 12h14M12 5l7 7-7 7",
+  list: "M9 6h11 M9 12h11 M9 18h11 M4 6h.01 M4 12h.01 M4 18h.01",
+  shield: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z",
+  clock: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z M12 6v6l4 2",
+  plus: "M12 5v14 M5 12h14",
+  pin: "M12 22s7-7.5 7-13a7 7 0 0 0-14 0c0 5.5 7 13 7 13Z M12 11a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z",
+  film: "M4 4h16v16H4Z M4 9h16 M4 15h16 M9 4v16 M15 4v16",
 };
 
 export function Icon({ name, size = 16 }: { name: keyof typeof PATHS | string; size?: number }) {
@@ -29,6 +35,7 @@ export function Icon({ name, size = 16 }: { name: keyof typeof PATHS | string; s
 
 const TECH_CLASS: Record<string, string> = {
   "Earth Engine": "t-ee", BigQuery: "t-bq", "Vertex AI": "t-vx", Gemini: "t-gm", "Pub/Sub": "t-ps", "Text-to-Speech": "t-tts",
+  "Official sources": "t-gov", OpenStreetMap: "t-osm",
 };
 
 export function TechBadge({ name }: { name: string }) {

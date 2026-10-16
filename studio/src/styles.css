@@ -314,3 +314,70 @@ h1, h2, h3 { letter-spacing: -0.015em; margin: 0; }
   .plan { border: 0; box-shadow: none; padding: 0; max-width: none; }
   .plan section, .plan figure, .plan tr { break-inside: avoid; }
 }
+
+/* --- Chat header, history ------------------------------------------------------------- */
+.chat { position: relative; }
+.chat-head { display: flex; align-items: center; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--line-2); }
+.chat-title { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+.icon-btn { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 4px 9px; font-size: 12.5px; color: var(--ink-2); }
+.icon-btn:hover:not(:disabled) { border-color: #c9d3cc; }
+.history { position: absolute; top: 46px; left: 10px; right: 10px; z-index: 6; max-height: 60%; overflow-y: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 12px 30px rgba(15,29,22,0.16); padding: 10px; }
+.history p { margin: 0 0 6px; }
+.history ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.history li { display: flex; align-items: center; border: 1px solid var(--line-2); border-radius: 10px; }
+.history li.on { border-color: var(--brand-2); background: var(--brand-50); }
+.h-open { flex: 1; min-width: 0; text-align: left; border: 0; background: none; padding: 8px 10px; display: grid; }
+.h-open b { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.h-open span { font-size: 11.5px; color: var(--muted); }
+.history .x { border: 0; background: none; font-size: 18px; padding: 0 10px; color: var(--muted); }
+
+/* --- Agent plan checklist and citations ---------------------------------------------- */
+.outline { border: 1px solid #c7d2fe; background: #eef2ff; border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; }
+.outline-head { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; color: #3730a3; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+.outline ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.outline li { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.outline li.done { color: var(--muted); text-decoration: line-through; text-decoration-color: #a5b4fc; }
+.outline li.now { font-weight: 600; color: #312e81; }
+.outline .box { width: 15px; height: 15px; border-radius: 4px; border: 1.5px solid #a5b4fc; display: grid; place-items: center; flex: none; background: #fff; }
+.outline li.done .box { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+.outline .spin { width: 10px; height: 10px; border-width: 2px; }
+.cites { margin-top: 8px; display: grid; gap: 4px; }
+.cites-head { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; color: var(--brand); text-transform: uppercase; letter-spacing: 0.05em; }
+.cite { display: grid; gap: 1px; text-decoration: none; color: inherit; border: 1px solid var(--line); border-left: 3px solid var(--brand-2); border-radius: 8px; padding: 6px 9px; background: var(--surface); }
+.cite:hover { border-color: var(--brand-2); }
+.cite b { font-size: 12.5px; }
+.cite span { font-size: 11.5px; color: var(--muted); }
+.cite em { font-style: normal; font-weight: 600; }
+.cite em.live { color: var(--brand-2); }
+.cite em.cached { color: var(--amber); }
+.cite em.warn { color: var(--amber); }
+.md a[href^="#"] { color: var(--brand); text-decoration: none; background: var(--brand-50); border: 1px solid var(--brand-100); border-radius: 6px; padding: 0 5px; font-weight: 600; cursor: pointer; }
+.md a[href^="#"]:hover { border-color: var(--brand-2); }
+.tech.t-gov { background: #dcfce7; color: #166534; }
+.tech.t-osm { background: #e0f2fe; color: #0c4a6e; }
+.eyebrow.blue { color: #1d4ed8; }
+.stat.good .stat-value { color: var(--brand); }
+
+/* --- Plan tab empty state, header dot ------------------------------------------------- */
+.views button { position: relative; }
+.dot-new { width: 7px; height: 7px; border-radius: 50%; background: var(--brand-2); position: absolute; top: 4px; right: 5px; }
+.plan-empty h1 { font-size: 26px; margin: 8px 0 4px; }
+.checklist { list-style: none; padding: 0; margin: 20px 0; display: grid; gap: 8px; }
+.checklist li { display: flex; align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.checklist li.done { background: var(--brand-50); border-color: var(--brand-100); }
+.checklist li.next { border-color: var(--brand-2); box-shadow: var(--shadow); }
+.checklist li div { display: grid; flex: 1; }
+.checklist li span { color: var(--muted); font-size: 13px; }
+.checklist .box { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; flex: none; }
+.checklist li.done .box { background: var(--brand-2); border-color: var(--brand-2); color: #fff; }
+
+/* --- Timelapse card ------------------------------------------------------------------ */
+.media-card { position: absolute; left: 12px; bottom: 34px; z-index: 4; width: min(380px, calc(100% - 420px)); min-width: 260px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 12px 30px rgba(15,29,22,0.2); overflow: hidden; }
+.media-card header { display: flex; align-items: center; gap: 6px; padding: 8px 10px; }
+.media-card header b { font-size: 13px; }
+.media-card .x { margin-left: auto; border: 0; background: none; font-size: 18px; color: var(--muted); }
+.media-card img { display: block; width: 100%; }
+.media-card footer { padding: 6px 10px; }
+@media (max-width: 860px) {
+  .media-card { left: 8px; right: 8px; width: auto; bottom: 8px; }
+}

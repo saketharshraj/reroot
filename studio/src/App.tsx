@@ -3,8 +3,9 @@ import { api, chat, type AgentEvent, type Geometry, type LayerId, type Role, typ
 import { Chat, ROLES, type Message } from "./Chat";
 import { FieldPhone } from "./FieldPhone";
 import { areaHa, readFootprint } from "./geo";
+import * as hist from "./history";
 import { MonitorPanel } from "./MonitorPanel";
-import { PlanDoc } from "./PlanDoc";
+import { MediaCard, PlanDoc, PlanEmpty } from "./PlanDoc";
 import { ResultsPanel } from "./ResultsPanel";
 import { StudioMap, type MapFocus } from "./StudioMap";
 import { Icon } from "./ui";
@@ -19,34 +20,61 @@ const LAYERS: { id: LayerId; label: string }[] = [
   { id: "rainfall", label: "Rainfall" },
   { id: "slope", label: "Slope" },
 ];
+const LAYER_IDS = LAYERS.map((l) => l.id) as string[];
 const ROLE_LABEL: Record<Role, string> = {
   developer: "Project developer", forest_department: "Forest department", ngo: "NGO", csr: "CSR team", other: "Guest",
 };
 const LAB_URL = (import.meta.env.VITE_LAB_URL as string | undefined) ?? "";
 const uid = () => Math.random().toString(36).slice(2, 10);
 
+function restore(): { id: string; messages: Message[]; ws: Workspace; view: View } {
+  const id = hist.currentId();
+  const c = id ? hist.loadAll().find((x) => x.id === id) : undefined;
+  if (!c) return { id: uid(), messages: [], ws: {}, view: "map" };
+  // Anything that was mid-flight when the tab closed is finished now.
+  const messages = c.messages.map((m) => ({ ...m, pending: false, steps: m.steps.map((s) => (s.state === "running" ? { ...s, state: "fail" as const } : s)) }));
+  return { id: c.id, messages, ws: c.workspace, view: (c.view as View) ?? "map" };
+}
+
 export default function App() {
-  const [ws, setWs] = useState<Workspace>({});
-  const [messages, setMessages] = useState<Message[]>([]);
+  const initial = useMemo(restore, []);
+  const [convId, setConvId] = useState(initial.id);
+  const [history, setHistory] = useState(hist.loadAll);
+  const [ws, setWs] = useState<Workspace>(initial.ws);
+  const [messages, setMessages] = useState<Message[]>(initial.messages);
   const [busy, setBusy] = useState(false);
   const abort = useRef<AbortController | null>(null);
-  const [view, setView] = useState<View>("map");
+  const [view, setView] = useState<View>(initial.view);
   const [layer, setLayer] = useState<LayerId>("true_colour");
   const [tiles, setTiles] = useState<Partial<Record<LayerId, string>>>({});
   const [drawing, setDrawing] = useState(false);
-  const [selectedSite, setSelectedSite] = useState<string | null>(null);
+  const [selectedSite, setSelectedSite] = useState<string | null>(initial.ws.sites?.[0]?.site_id ?? null);
   const [selectedPlantation, setSelectedPlantation] = useState<string | null>(null);
   const [focus, setFocus] = useState<MapFocus | null>(null);
+  const [mediaOpen, setMediaOpen] = useState(false);
   const [phone, setPhone] = useState<{ open: boolean; since: number | null; plantation: string | null }>({ open: false, since: null, plantation: null });
 
-  const focusOn = (kind: MapFocus["kind"], id?: string) => setFocus({ kind, id, nonce: Date.now() });
+  const focusOn = (kind: MapFocus["kind"], id?: string, lonlat?: [number, number]) => setFocus({ kind, id, lonlat, nonce: Date.now() });
+
+  useEffect(() => {
+    hist.setCurrentId(convId);
+  }, [convId]);
+
+  // Save this conversation to the browser shortly after anything changes.
+  useEffect(() => {
+    if (!messages.length) return;
+    const t = setTimeout(() => {
+      hist.save({ id: convId, title: hist.titleFor(messages), updatedAt: Date.now(), messages, workspace: ws, view });
+      setHistory(hist.loadAll());
+    }, 600);
+    return () => clearTimeout(t);
+  }, [messages, ws, view, convId]);
 
   useEffect(() => {
     if (tiles[layer]) return;
     api.layer(layer).then((r) => setTiles((t) => ({ ...t, [layer]: r.tile_url }))).catch(() => {});
   }, [layer]);
 
-  // Monitoring needs the plantation list even when the agent hasn't loaded it yet.
   useEffect(() => {
     if ((view === "monitor" || phone.open) && !ws.plantations?.length) {
       api.plantations().then((ps) => {
@@ -56,24 +84,34 @@ export default function App() {
     }
   }, [view, phone.open]);
 
+  useEffect(() => {
+    if (ws.project) focusOn(ws.sites?.length ? "sites" : "project");
+  }, []);
+
   function patchMessage(id: string, f: (m: Message) => Message) {
     setMessages((ms) => ms.map((m) => (m.id === id ? f(m) : m)));
   }
 
   function handle(aid: string, e: AgentEvent) {
     switch (e.type) {
+      case "outline":
+        patchMessage(aid, (m) => ({ ...m, outline: e.steps }));
+        break;
+      case "sources":
+        patchMessage(aid, (m) => ({ ...m, sources: e.items }));
+        break;
       case "step":
         patchMessage(aid, (m) => ({ ...m, steps: [...m.steps, { id: e.id, tool: e.tool, label: e.label, tech: e.tech, state: "running" }] }));
         break;
       case "step_done":
         patchMessage(aid, (m) => ({ ...m, steps: m.steps.map((s) => (s.id === e.id ? { ...s, state: e.ok ? "ok" : "fail", ms: e.ms, summary: e.summary } : s)) }));
         break;
-      case "state": {
+      case "state":
         setWs((w) => ({ ...w, ...e.patch }));
         if (e.patch.sites?.length) setSelectedSite(e.patch.sites[0].site_id);
         if (e.patch.plantation_check) setSelectedPlantation(e.patch.plantation_check.plantation_id);
+        if (e.patch.media) setMediaOpen(true);
         break;
-      }
       case "ui":
         if (e.layer) setLayer(e.layer);
         if (e.view === "field") {
@@ -84,6 +122,8 @@ export default function App() {
         if (e.view === "map") {
           if (e.focus === "sites") focusOn("sites");
           else if (e.focus === "site" && e.site_id) (setSelectedSite(e.site_id), focusOn("site", e.site_id));
+          else if (e.focus === "place") focusOn("place");
+          else if (e.focus === "area") focusOn("area");
           else if (e.focus === "assess" || !e.layer) focusOn("project");
         }
         if (e.view === "monitor") {
@@ -104,16 +144,16 @@ export default function App() {
   }
 
   async function send(text: string, profileOverride?: Workspace["profile"]) {
-    const uidUser = uid(), aid = uid();
+    const aid = uid();
     const history = messages.filter((m) => m.text).map((m) => ({ role: m.role, text: m.text }));
-    setMessages((ms) => [...ms, { id: uidUser, role: "user", text, steps: [] }, { id: aid, role: "assistant", text: "", steps: [], pending: true }]);
+    setMessages((ms) => [...ms, { id: uid(), role: "user", text, steps: [] }, { id: aid, role: "assistant", text: "", steps: [], pending: true }]);
     setBusy(true);
     setDrawing(false);
     const ctrl = new AbortController();
     abort.current = ctrl;
     const payload: Workspace = {
       profile: profileOverride ?? ws.profile, project: ws.project, project_name: ws.project_name,
-      assess: ws.assess, sites: ws.sites, plan_id: ws.plan_id,
+      assess: ws.assess, sites: ws.sites, plan_id: ws.plan_id, place: ws.place, analysis: ws.analysis,
     };
     try {
       await chat(text, history, payload, (e) => handle(aid, e), ctrl.signal);
@@ -125,6 +165,30 @@ export default function App() {
     }
   }
 
+  /** Links inside replies drive the canvas; unknown links are asked as a follow-up. */
+  function onLink(href: string, text: string) {
+    const [kind, ...rest] = href.split("-");
+    const arg = rest.join("-");
+    if (kind === "site") {
+      const s = ws.sites?.find((x) => x.rank === Number(arg));
+      if (s) return (setView("map"), setSelectedSite(s.site_id), focusOn("site", s.site_id));
+    }
+    if (kind === "plantation" && arg) return (setView("monitor"), setSelectedPlantation(arg), focusOn("plantation", arg));
+    if (kind === "place" && arg) {
+      const [lon, lat] = arg.split(",").map(Number);
+      if (Number.isFinite(lon) && Number.isFinite(lat)) {
+        setWs((w) => ({ ...w, place: { name: text || "Place", lon, lat } }));
+        return (setView("map"), focusOn("point", undefined, [lon, lat]));
+      }
+    }
+    if (kind === "layer" && LAYER_IDS.includes(arg)) return (setView("map"), setLayer(arg as LayerId));
+    if (kind === "view" && ["map", "plan", "monitor"].includes(arg)) return setView(arg as View);
+    if (href === "project" && ws.project) return (setView("map"), focusOn("project"));
+    if (href === "media" && ws.media) return setMediaOpen(true);
+    if (href === "area" && ws.analysis) return (setView("map"), focusOn("area"));
+    if (text.trim() && !busy) send(text.trim());
+  }
+
   function setFootprint(g: Geometry, name: string) {
     setWs((w) => ({ ...w, project: g, project_name: name, assess: null, sites: null, sites_meta: null, plan: null, plan_id: null }));
     setSelectedSite(null);
@@ -132,15 +196,40 @@ export default function App() {
     focusOn("project");
   }
 
+  function openConversation(id: string) {
+    const c = hist.loadAll().find((x) => x.id === id);
+    if (!c) return;
+    setConvId(c.id);
+    setMessages(c.messages.map((m) => ({ ...m, pending: false })));
+    setWs(c.workspace);
+    setView((c.view as View) ?? "map");
+    setSelectedSite(c.workspace.sites?.[0]?.site_id ?? null);
+    setMediaOpen(false);
+    if (c.workspace.project) focusOn(c.workspace.sites?.length ? "sites" : "project");
+  }
+
+  function newConversation() {
+    abort.current?.abort();
+    setConvId(uid());
+    setMessages([]);
+    setWs({});
+    setView("map");
+    setSelectedSite(null);
+    setSelectedPlantation(null);
+    setMediaOpen(false);
+    setPhone({ open: false, since: null, plantation: null });
+  }
+
   const suggestions = useMemo(() => {
     if (!messages.length) return [];
-    if (ws.plan && view === "plan") return ["How are our existing plantations doing?", "Which site has the best survival odds, and why?"];
-    if (ws.plantations?.length && view === "monitor") return ["Check the Pali scrubland block", "Alert caretakers wherever action is needed", "Which plantation is doing best?"];
-    if (ws.sites?.length) return ["Write the compensatory planting plan", "Why is site 1 ranked first?", "Show land that looks like the Mangar Bani forest"];
+    if (ws.plan && view === "plan") return ["What do the rules say about planting on degraded forest land?", "How are our existing plantations doing?"];
+    if (ws.plantations?.length && view === "monitor") return ["Check the Pali scrubland block", "Show a timelapse of the Bandhwari ridge restoration", "Alert caretakers wherever action is needed"];
+    if (ws.sites?.length) return ["Write the compensatory planting plan", "Why is site 1 ranked first?", "Show a timelapse of site 1", "What do the rules say about planting on degraded forest land?"];
     if (ws.assess) return ["Find planting sites, avoid farmland, prioritise survival", "Find sites within 10 km that reconnect forest"];
+    if (ws.analysis) return ["Show a timelapse of this area", "Find planting sites near here"];
     if (ws.project) return ["What will this footprint clear?"];
-    return ["Use the demo bypass", "How are our plantations doing?"];
-  }, [messages.length, ws.project, ws.assess, ws.sites, ws.plan, ws.plantations, view]);
+    return ["Use the demo bypass", "What's the land like within 2 km of Mangar village?", "Is a Green Credit available for planting on degraded land?"];
+  }, [messages.length, ws.project, ws.assess, ws.sites, ws.plan, ws.plantations, ws.analysis, view]);
 
   const role = ws.profile?.role ?? null;
   const footprint = ws.project ? { name: ws.project_name ?? "Footprint", area_ha: ws.assess?.area_ha ?? areaHa(ws.project) } : null;
@@ -154,8 +243,9 @@ export default function App() {
         </div>
         <nav className="views" aria-label="Views">
           {([["map", "map", "Map"], ["plan", "doc", "Plan"], ["monitor", "pulse", "Monitor"]] as const).map(([id, icon, label]) => (
-            <button key={id} className={view === id ? "on" : ""} disabled={id === "plan" && !ws.plan} onClick={() => setView(id)}>
+            <button key={id} className={view === id ? "on" : ""} onClick={() => setView(id)}>
               <Icon name={icon} size={15} />{label}
+              {id === "plan" && ws.plan && <span className="dot-new" aria-label="plan ready" />}
             </button>
           ))}
         </nav>
@@ -175,6 +265,8 @@ export default function App() {
         suggestions={suggestions}
         footprint={footprint}
         drawing={drawing}
+        history={history}
+        currentId={convId}
         onSend={(t) => send(t)}
         onPickRole={(r, prompt) => {
           const profile = { role: r, organisation: null };
@@ -188,6 +280,10 @@ export default function App() {
         }}
         onClearFootprint={() => setWs((w) => ({ ...w, project: null, project_name: null, assess: null, sites: null, plan: null, plan_id: null }))}
         onStop={() => abort.current?.abort()}
+        onLink={onLink}
+        onNewChat={newConversation}
+        onOpenChat={openConversation}
+        onDeleteChat={(id) => { hist.remove(id); setHistory(hist.loadAll()); if (id === convId) newConversation(); }}
       />
 
       <main className="canvas">
@@ -200,6 +296,8 @@ export default function App() {
           plantations={ws.plantations ?? []}
           selectedPlantationId={selectedPlantation}
           showPlantations={view === "monitor"}
+          place={ws.place ?? null}
+          analysis={view === "monitor" ? null : ws.analysis ?? null}
           drawing={drawing}
           focus={focus}
           onDrawFinish={(g) => { setDrawing(false); setFootprint(g, "Drawn footprint"); }}
@@ -231,7 +329,13 @@ export default function App() {
             />
           </div>
         )}
-        {view === "plan" && ws.plan && <PlanDoc plan={ws.plan} onClose={() => setView("map")} />}
+        {view === "plan" && (ws.plan
+          ? <PlanDoc plan={ws.plan} onClose={() => setView("map")} />
+          : <PlanEmpty ws={ws} busy={busy} onAsk={(t) => send(t)} />)}
+
+        {mediaOpen && ws.media && view !== "plan" && (
+          <MediaCard title={ws.media.title} url={ws.media.url} years={ws.media.years} onClose={() => setMediaOpen(false)} />
+        )}
 
         {phone.open && (
           <FieldPhone

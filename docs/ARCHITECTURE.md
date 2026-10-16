@@ -26,7 +26,7 @@ caretakers as voice notes, photo verification).
 |---|---|---|
 | `src/reroot/core/` | config, credentials, clients, reusable EE layers | Shared; change with care |
 | `src/reroot/pipelines/` | EE feature extraction → `reroot.grid_cells`, model training | Batch, uses standard EE endpoint |
-| `src/reroot/api/` | FastAPI service. `agent.py` (Gemini + 10 tools, SSE), `assess`, `sites`, `plan`, `monitor`, `alerts`, `verify`, `basemap` | Contract: `contracts/openapi.yaml` |
+| `src/reroot/api/` | FastAPI service. `agent.py` (Gemini + 16 tools, SSE), `assess`, `sites`, `plan`, `monitor`, `alerts`, `verify`, `basemap`, `policy` (trusted official sources), `explore` (place search, area analysis, timelapse) | Contract: `contracts/openapi.yaml` |
 | `src/reroot/notifier/` | Pub/Sub push consumer → Telegram, Cloud TTS voice notes | Contract: `contracts/alert_message.schema.json` |
 | `studio/` | **ReRoot Studio**: the product. Chat-first (Gemini agent) + map canvas, plan doc, monitor, caretaker phone | `VITE_API_BASE_URL`, `VITE_LAB_URL`; Vercel project #1 |
 | `web/` | **Data Lab**: internal visualiser of layers, assess, site search | `VITE_API_BASE_URL`; Vercel project #2 |
@@ -67,6 +67,12 @@ Scoring: 2025 features. Holdout is spatial (2 km blocks) to avoid neighbour leak
 - Plan maps crop `gs://reroot-hack-2026-data/basemaps/<region>.png` (render once with
   `uv run python -m reroot.api.basemap`). Demo plantations: `uv run python -m reroot.pipelines.seed_plantations`.
 - Gemini numbers must come from tools. Survival odds are a percentile rank, never a probability.
+- Policy answers come only from `research_policy`, which reads the hard-coded registry in
+  `api/policy.py` (allow-listed government domains; live fetch, Cloud Storage snapshot fallback).
+  Add sources there; refresh snapshots with `uv run python -m reroot.api.policy`.
+- Replies link entities as `#site-N`, `#plantation-ID`, `#place-lon,lat`, `#layer-ID`, `#view-plan`,
+  `#media`, `#area`; Studio turns these into map actions (unknown links are sent as a question).
+- Studio keeps chat history in the browser's localStorage only (`studio/src/history.ts`).
 
 ## Deploy
 

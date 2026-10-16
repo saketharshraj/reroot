@@ -21,7 +21,7 @@ from typing import Iterator
 
 from google.genai import types
 
-from reroot.api import alerts, assess, monitor, plan, sites
+from reroot.api import alerts, assess, explore, monitor, plan, policy, sites
 from reroot.core import config
 from reroot.core.clients import gemini, gen_config, init_ee
 
@@ -33,7 +33,28 @@ PRIORITIES = {"survival": "establishment", "water": "water", "connectivity": "co
               "people": "people", "terrain": "terrain"}
 BASE_WEIGHTS = {"establishment": 3, "water": 2, "connectivity": 2, "people": 1, "terrain": 1}
 
+TARGETS = ["project", "sites", "site", "plantations", "plantation", "place", "area"]
+
 TOOLS = [
+    {"name": "outline_steps", "description": "Before a request that needs 3 or more other tools, call this FIRST with the short steps you will take, so the user sees your plan.",
+     "parameters": {"type": "object", "properties": {"steps": {"type": "array", "items": {"type": "string"}, "description": "3-6 short imperative steps"}}, "required": ["steps"]}},
+    {"name": "research_policy", "description": "Read official government sources live (Indian forest-conservation rules, the CAF Act, Green Credit Programme, Aravalli Green Wall, State of Forest Report) and return relevant passages to answer a policy or legal question. Answer only from the returned excerpts and cite source titles.",
+     "parameters": {"type": "object", "properties": {"question": {"type": "string"}, "country": {"type": "string", "description": "ISO country code, default IN"}}, "required": ["question"]}},
+    {"name": "find_place", "description": "Find a village, town, landmark or road inside the analysed region and fly the map there.",
+     "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
+    {"name": "analyze_area", "description": "Land cover, tree cover, carbon and plantable hectares within a radius of a place or point. Use for questions like 'what is around X' or 'how much land could we plant near Y'.",
+     "parameters": {"type": "object", "properties": {"place": {"type": "string"}, "lon": {"type": "number"}, "lat": {"type": "number"},
+                                                    "radius_km": {"type": "number", "description": "default 2"}}}},
+    {"name": "make_timelapse", "description": "Make a satellite timelapse (one Sentinel-2 frame per dry season) of a target, to show change over the years.",
+     "parameters": {"type": "object", "properties": {
+         "target": {"type": "string", "enum": ["project", "site", "plantation", "area", "place"]},
+         "rank": {"type": "integer", "description": "site rank when target=site"},
+         "plantation_id": {"type": "string"}, "start_year": {"type": "integer"}, "end_year": {"type": "integer"}},
+         "required": ["target"]}},
+    {"name": "show_on_map", "description": "Point the map at something you are talking about, optionally switching the satellite layer.",
+     "parameters": {"type": "object", "properties": {
+         "target": {"type": "string", "enum": TARGETS}, "rank": {"type": "integer"}, "plantation_id": {"type": "string"},
+         "layer": {"type": "string", "enum": LAYERS}}, "required": ["target"]}},
     {"name": "set_profile", "description": "Remember who the user is so answers fit their job. Call when they say who they are or what organisation they represent.",
      "parameters": {"type": "object", "properties": {
          "role": {"type": "string", "enum": ["developer", "forest_department", "ngo", "csr", "other"]},
@@ -63,6 +84,12 @@ TOOLS = [
 ]
 
 STEP_INFO = {
+    "outline_steps": ("Planning the steps", []),
+    "research_policy": ("Reading official government sources", ["Official sources", "Gemini"]),
+    "find_place": ("Finding the place", ["OpenStreetMap"]),
+    "analyze_area": ("Analysing the land around it", ["Earth Engine", "BigQuery"]),
+    "make_timelapse": ("Rendering a satellite timelapse", ["Earth Engine"]),
+    "show_on_map": ("Pointing the map", []),
     "set_profile": ("Noting who you are", []),
     "load_demo_project": ("Loading the demo bypass footprint", []),
     "assess_project": ("Measuring the footprint from satellite data", ["Earth Engine"]),
@@ -100,6 +127,18 @@ How to work:
 - Style: short and concrete. 2-5 sentences, then bullets if useful. Use hectares (ha), t CO2e and
   Indian number formatting. Bold the key numbers. End with one suggested next step.
 - Reply in the user's language (Hindi if they write in Hindi).
+- Plan out loud: whenever the user asks for more than one thing, or the work needs 3+ tools, your FIRST
+  call must be outline_steps. Then run tools in order (a place must be found before analysing it).
+- You have NO reliable memory of laws or government schemes. For ANY question about laws, rules, policy,
+  compliance, clearances, funds or schemes you MUST call research_policy first, even if you think you
+  know the answer, and answer ONLY from its excerpts. Cite the
+  source title for each claim (e.g. "(Van Rules, 2023)"). If excerpts don't cover it, say so. Never
+  give legal advice; summarise what the documents say.
+- Keep the map in sync with what you say: use show_on_map when you discuss something specific.
+- Make every mention clickable with these markdown links (the UI flies the map there):
+  [site 3](#site-3), [Pali scrubland block](#plantation-P3), [Mangar](#place-77.18,28.41),
+  [the footprint](#project), [vegetation health](#layer-ndvi), [the plan](#view-plan),
+  [the timelapse](#media), [the area analysis](#area), [plantation monitoring](#view-monitor).
 - The UI already shows maps, cards, the plan document and alerts; don't repeat every number,
   highlight what matters and say where to look.
 
@@ -117,6 +156,11 @@ def _workspace_summary(ws: dict) -> str:
         s["sites"] = [{"rank": x["rank"], "area_ha": x["area_ha"], "score": x["final_score"]} for x in ws["sites"]]
     if ws.get("plan_id"):
         s["plan_id"] = ws["plan_id"]
+    if ws.get("place"):
+        s["place"] = {k: ws["place"].get(k) for k in ("name", "lon", "lat")}
+    if ws.get("analysis"):
+        a = ws["analysis"]
+        s["area_analysis"] = {k: a.get(k) for k in ("name", "radius_km", "plantable_ha", "tree_cover_ha")}
     return json.dumps(s)
 
 
@@ -217,6 +261,90 @@ class Tools:
         return result, [{"type": "ui", "view": "field", "expect_alerts": len(r["alerts"]),
                          "plantation_id": plantation_id}]
 
+    def outline_steps(self, steps: list[str]):
+        return {"ok": True, "note": "now carry out the steps"}, [{"type": "outline", "steps": [str(x) for x in steps][:8]}]
+
+    def research_policy(self, question: str, country: str = "IN"):
+        r = policy.research(question, country or "IN")
+        if r.get("error"):
+            return r, []
+        return r, [{"type": "sources", "items": r["sources"]}]
+
+    def find_place(self, query: str):
+        hits = explore.find_place(query)
+        if not hits:
+            return {"error": f"'{query}' not found inside the analysed region (Aravalli belt, Gurugram–Faridabad)"}, []
+        p = hits[0]
+        self.ws["place"] = p
+        return ({"place": p, "other_matches": [h["label"] for h in hits[1:3]]},
+                [{"type": "state", "patch": {"place": p}}, {"type": "ui", "view": "map", "focus": "place"}])
+
+    def analyze_area(self, place=None, lon=None, lat=None, radius_km=None):
+        name = place
+        if place and (lon is None or lat is None):
+            hits = explore.find_place(place)
+            if not hits:
+                return {"error": f"'{place}' not found inside the analysed region"}, []
+            lon, lat, name = hits[0]["lon"], hits[0]["lat"], hits[0]["name"]
+            self.ws["place"] = hits[0]
+        if lon is None and self.ws.get("place"):
+            lon, lat, name = self.ws["place"]["lon"], self.ws["place"]["lat"], self.ws["place"]["name"]
+        if lon is None:
+            return {"error": "need a place name or coordinates"}, []
+        init_ee(high_volume=True)
+        a = explore.analyze(float(lon), float(lat), float(radius_km or 2), name)
+        self.ws["analysis"] = a
+        patch = {"analysis": a} | ({"place": self.ws["place"]} if self.ws.get("place") else {})
+        return ({k: v for k, v in a.items() if k != "geometry"},
+                [{"type": "state", "patch": patch}, {"type": "ui", "view": "map", "focus": "area"}])
+
+    def _target_geoms(self, target, rank=None, plantation_id=None) -> tuple[list[dict], str]:
+        if target == "project" and self.ws.get("project"):
+            return [self.ws["project"]], self.ws.get("project_name") or "Project footprint"
+        if target == "site" and self.ws.get("sites"):
+            s = next((x for x in self.ws["sites"] if x["rank"] == int(rank or 1)), None)
+            if s:
+                return [s["geometry"]], f"Site {s['rank']}"
+        if target == "plantation":
+            p = next((x for x in monitor.plantations() if x["plantation_id"] == plantation_id), None)
+            if p:
+                return [p["geometry"]], p["name"]
+        if target == "area" and self.ws.get("analysis"):
+            return [self.ws["analysis"]["geometry"]], f"Around {self.ws['analysis'].get('name') or 'point'}"
+        if target in ("place", "area") and self.ws.get("place"):
+            pl = self.ws["place"]
+            return [explore.circle(pl["lon"], pl["lat"], 1.0)], pl["name"]
+        return [], ""
+
+    def make_timelapse(self, target: str, rank=None, plantation_id=None, start_year=2019, end_year=2026):
+        geoms, title = self._target_geoms(target, rank, plantation_id)
+        if not geoms:
+            return {"error": f"nothing to show for target '{target}' yet"}, []
+        init_ee(high_volume=True)
+        m = explore.timelapse(geoms, title, start_year or 2019, end_year or 2026)
+        return ({"ok": True, "title": m["title"], "years": m["years"]},
+                [{"type": "state", "patch": {"media": m}}] + self._focus_events(target, rank, plantation_id))
+
+    def _focus_events(self, target, rank=None, plantation_id=None, layer=None) -> list[dict]:
+        ev: dict = {"type": "ui", "view": "monitor" if target.startswith("plantation") else "map"}
+        if layer:
+            ev["layer"] = layer
+        if target == "site":
+            s = next((x for x in self.ws.get("sites") or [] if x["rank"] == int(rank or 1)), None)
+            ev |= {"focus": "site", "site_id": s["site_id"]} if s else {"focus": "sites"}
+        elif target == "plantation":
+            ev |= {"plantation_id": plantation_id}
+        elif target == "sites":
+            ev["focus"] = "sites"
+        elif target == "project":
+            ev["focus"] = "assess"
+        elif target in ("place", "area"):
+            ev["focus"] = target
+        return [ev]
+
+    def show_on_map(self, target: str, rank=None, plantation_id=None, layer=None):
+        return {"ok": True}, self._focus_events(target, rank, plantation_id, layer)
+
     def show_map_layer(self, layer: str):
         return {"ok": True}, [{"type": "ui", "view": "map", "layer": layer}]
 
@@ -235,7 +363,7 @@ def run(message: str, history: list[dict], workspace: dict) -> Iterator[dict]:
     contents = _contents(history, message)
     decls = [types.FunctionDeclaration(name=t["name"], description=t["description"], parameters_json_schema=t["parameters"])
              for t in TOOLS]
-    for _ in range(8):
+    for _ in range(12):
         cfg = gen_config(
             system_instruction=SYSTEM.format(today=date.today().isoformat(), workspace=_workspace_summary(tools.ws)),
             tools=[types.Tool(function_declarations=decls)],

@@ -6,7 +6,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { TerraDraw, TerraDrawPolygonMode } from "terra-draw";
 import { TerraDrawMapLibreGLAdapter } from "terra-draw-maplibre-gl-adapter";
-import type { Geometry, Plantation, Site } from "./api";
+import type { AreaAnalysis, Geometry, Place, Plantation, Site } from "./api";
 
 maplibregl.setWorkerUrl(workerUrl);
 
@@ -14,7 +14,7 @@ const BASEMAP = "https://tiles.openfreemap.org/styles/positron";
 const EMPTY: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 const fc = (features: GeoJSON.Feature[]): GeoJSON.FeatureCollection => ({ type: "FeatureCollection", features });
 
-export interface MapFocus { kind: "project" | "sites" | "site" | "plantations" | "plantation"; id?: string; nonce: number }
+export interface MapFocus { kind: "project" | "sites" | "site" | "plantations" | "plantation" | "place" | "area" | "point"; id?: string; lonlat?: [number, number]; nonce: number }
 
 interface Props {
   tileUrl: string | null;
@@ -25,6 +25,8 @@ interface Props {
   plantations: Plantation[];
   selectedPlantationId: string | null;
   showPlantations: boolean;
+  place: Place | null;
+  analysis: AreaAnalysis | null;
   drawing: boolean;
   focus: MapFocus | null;
   onDrawFinish: (g: Geometry) => void;
@@ -103,6 +105,19 @@ export function StudioMap(p: Props) {
         paint: { "text-color": "#ffffff", "text-halo-color": "#14532d", "text-halo-width": 2 },
       });
 
+      m.addSource("analysis", { type: "geojson", data: EMPTY });
+      m.addLayer({ id: "analysis-fill", type: "fill", source: "analysis", paint: { "fill-color": "#2563eb", "fill-opacity": 0.08 } });
+      m.addLayer({ id: "analysis-line", type: "line", source: "analysis", paint: { "line-color": "#1d4ed8", "line-width": 2, "line-dasharray": [2, 2] } });
+
+      m.addSource("place", { type: "geojson", data: EMPTY });
+      m.addLayer({ id: "place-halo", type: "circle", source: "place", paint: { "circle-radius": 14, "circle-color": "#2563eb", "circle-opacity": 0.2 } });
+      m.addLayer({ id: "place-dot", type: "circle", source: "place", paint: { "circle-radius": 6, "circle-color": "#1d4ed8", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 } });
+      m.addLayer({
+        id: "place-label", type: "symbol", source: "place",
+        layout: { "text-field": ["get", "name"], "text-size": 13, "text-font": ["Noto Sans Bold"], "text-offset": [0, 1.4], "text-anchor": "top" },
+        paint: { "text-color": "#1e3a8a", "text-halo-color": "#ffffff", "text-halo-width": 2 },
+      });
+
       m.addSource("project", { type: "geojson", data: EMPTY });
       m.addLayer({ id: "project-fill", type: "fill", source: "project", paint: { "fill-color": "#ef4444", "fill-opacity": 0.4 } });
       m.addLayer({ id: "project-line", type: "line", source: "project", paint: { "line-color": "#b91c1c", "line-width": 2 } });
@@ -140,7 +155,11 @@ export function StudioMap(p: Props) {
   function sync() {
     const m = map.current;
     if (!m || !ready.current) return;
-    const { tileUrl, opacity, project, sites, selectedSiteId, plantations, selectedPlantationId, showPlantations } = cb.current;
+    const { tileUrl, opacity, project, sites, selectedSiteId, plantations, selectedPlantationId, showPlantations, place, analysis } = cb.current;
+    (m.getSource("analysis") as GeoJSONSource).setData(analysis ? fc([{ type: "Feature", properties: {}, geometry: analysis.geometry }]) : EMPTY);
+    (m.getSource("place") as GeoJSONSource).setData(place ? fc([{
+      type: "Feature", properties: { name: place.name }, geometry: { type: "Point", coordinates: [place.lon, place.lat] },
+    }]) : EMPTY);
     if (tileUrl) (m.getSource("ee") as RasterTileSource).setTiles([tileUrl]);
     m.setPaintProperty("ee", "raster-opacity", tileUrl ? opacity : 0);
     (m.getSource("project") as GeoJSONSource).setData(project ? fc([{ type: "Feature", properties: {}, geometry: project }]) : EMPTY);
@@ -157,7 +176,7 @@ export function StudioMap(p: Props) {
     m.setFilter("plantations-selected", ["==", ["get", "id"], selectedPlantationId ?? ""]);
   }
 
-  useEffect(sync, [p.tileUrl, p.opacity, p.project, p.sites, p.selectedSiteId, p.plantations, p.selectedPlantationId, p.showPlantations]);
+  useEffect(sync, [p.tileUrl, p.opacity, p.project, p.sites, p.selectedSiteId, p.plantations, p.selectedPlantationId, p.showPlantations, p.place, p.analysis]);
 
   useEffect(() => {
     draw.current?.setMode(p.drawing ? "polygon" : "static");
@@ -173,6 +192,12 @@ export function StudioMap(p: Props) {
     if (f.kind === "site") geoms = p.sites.filter((s) => s.site_id === f.id).map((s) => s.geometry);
     if (f.kind === "plantations") geoms = p.plantations.map((x) => x.geometry);
     if (f.kind === "plantation") geoms = p.plantations.filter((x) => x.plantation_id === f.id).map((x) => x.geometry);
+    if (f.kind === "area" && p.analysis) geoms = [p.analysis.geometry];
+    const point = f.kind === "point" ? f.lonlat : f.kind === "place" && p.place ? [p.place.lon, p.place.lat] as [number, number] : null;
+    if (point) {
+      m.flyTo({ center: point, zoom: 13.5, duration: 900, padding: { top: 0, bottom: 0, left: 0, right: 380 } });
+      return;
+    }
     const b = bounds(geoms);
     if (b) m.fitBounds(b, { padding: { top: 80, bottom: 60, left: 60, right: 420 }, maxZoom: f.kind === "site" || f.kind === "plantation" ? 15 : 13.5, duration: 900 });
   }, [p.focus?.nonce]);

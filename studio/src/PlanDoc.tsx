@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { API_BASE, type Plan } from "./api";
+import { API_BASE, type Plan, type Workspace } from "./api";
 import { fmt } from "./geo";
 import { Icon } from "./ui";
 
@@ -99,5 +99,48 @@ export function PlanDoc({ plan, onClose }: { plan: Plan; onClose: () => void }) 
         </footer>
       </article>
     </div>
+  );
+}
+
+/** The Plan tab before a plan exists: shows what's needed and lets the user ask for each step. */
+export function PlanEmpty({ ws, busy, onAsk }: { ws: Workspace; busy: boolean; onAsk: (t: string) => void }) {
+  const steps = [
+    { done: !!ws.project, label: "Project footprint", hint: "Draw it, upload a KML, or use the demo bypass", ask: "Use the demo bypass" },
+    { done: !!ws.assess, label: "Impact assessment", hint: "What the project clears and the planting required", ask: "What will this footprint clear?" },
+    { done: !!ws.sites?.length, label: "Planting sites", hint: "Ranked land where trees will survive", ask: "Find planting sites, avoid farmland, prioritise survival" },
+    { done: !!ws.plan, label: "Plan document", hint: "Summary, map, species, schedule, monitoring, risks", ask: "Write the compensatory planting plan" },
+  ];
+  const next = steps.find((s) => !s.done);
+  return (
+    <div className="plan-wrap">
+      <article className="plan plan-empty">
+        <div className="plan-brand"><Icon name="leaf" size={16} /> ReRoot</div>
+        <h1>Compensatory planting plan</h1>
+        <p className="muted">ReRoot writes the plan from real satellite evidence. Here's what it needs first.</p>
+        <ol className="checklist">
+          {steps.map((s) => (
+            <li key={s.label} className={s.done ? "done" : s === next ? "next" : ""}>
+              <span className="box">{s.done ? <Icon name="check" size={12} /> : null}</span>
+              <div><b>{s.label}</b><span>{s.hint}</span></div>
+              {s === next && <button className="btn primary" disabled={busy} onClick={() => onAsk(s.ask)}>{s.ask}</button>}
+            </li>
+          ))}
+        </ol>
+        <button className="btn ghost" disabled={busy} onClick={() => onAsk("Load the demo bypass, assess it, find planting sites and write the plan")}>
+          <Icon name="arrow" size={14} /> Do it all for the demo bypass
+        </button>
+      </article>
+    </div>
+  );
+}
+
+export function MediaCard({ title, url, years, onClose }: { title: string; url: string; years: [number, number]; onClose: () => void }) {
+  return (
+    <aside className="media-card" aria-label="Satellite timelapse">
+      <header><Icon name="film" size={14} /><b>{title}</b><span className="muted small">{years[0]}–{years[1]} · dry season</span>
+        <button className="x" onClick={onClose} aria-label="Close timelapse">×</button></header>
+      <img src={url.startsWith("/") ? API_BASE + url : url} alt={`Satellite timelapse of ${title}, ${years[0]} to ${years[1]}`} />
+      <footer className="muted small">Sentinel-2 via Earth Engine · one frame per year</footer>
+    </aside>
   );
 }

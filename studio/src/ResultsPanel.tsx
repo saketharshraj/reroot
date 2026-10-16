@@ -1,4 +1,4 @@
-import type { Assess, Site, Workspace } from "./api";
+import type { AreaAnalysis, Assess, Site, Workspace } from "./api";
 import { fmt } from "./geo";
 import { Bar, Sources, Stat } from "./ui";
 
@@ -77,8 +77,28 @@ function SitesCard({ sites, meta, need, selected, onSelect }: {
   );
 }
 
+function AreaCard({ a }: { a: AreaAnalysis }) {
+  const lc = Object.entries(a.land_cover_pct).filter(([, v]) => v >= 0.5);
+  return (
+    <section className="card">
+      <header className="card-head"><span className="eyebrow blue">Area analysis</span><h3>{a.radius_km} km around {a.name ?? "this point"}</h3></header>
+      <div className="stats">
+        <Stat label="Tree cover" value={fmt(a.tree_cover_ha, 0)} unit="ha" />
+        <Stat label="Carbon stock" value={fmt(a.co2e_t_est)} unit="t CO₂e" />
+        <Stat label="Plantable land" value={fmt(a.plantable_ha)} unit="ha" tone="good" />
+        <Stat label="Top-25% survival odds" value={fmt(a.plantable_top_quartile_survival_ha)} unit="ha" tone="good" />
+      </div>
+      <div className="lcbar">{lc.map(([k, v]) => <i key={k} style={{ width: `${v}%`, background: LC[k]?.[1] ?? "#999" }} title={`${LC[k]?.[0] ?? k} ${v}%`} />)}</div>
+      <ul className="lclegend">{lc.slice(0, 6).map(([k, v]) => <li key={k}><i style={{ background: LC[k]?.[1] }} />{LC[k]?.[0] ?? k} <b>{v}%</b></li>)}</ul>
+      <Sources items={a.sources} />
+    </section>
+  );
+}
+
 export function ResultsPanel({ ws, selected, onSelect }: { ws: Workspace; selected: string | null; onSelect: (id: string) => void }) {
+  const area = ws.analysis ? <AreaCard a={ws.analysis} /> : null;
   if (!ws.assess && !ws.sites?.length) {
+    if (area) return area;
     return (
       <section className="card hint">
         <h3>Start with a footprint</h3>
@@ -88,6 +108,7 @@ export function ResultsPanel({ ws, selected, onSelect }: { ws: Workspace; select
   }
   return (
     <>
+      {area}
       {ws.sites?.length ? (
         <SitesCard sites={ws.sites} meta={ws.sites_meta} need={ws.assess?.offset_required_ha ?? null} selected={selected} onSelect={onSelect} />
       ) : null}

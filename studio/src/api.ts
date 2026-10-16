@@ -66,7 +66,26 @@ export interface Verification {
   location: { source: string; match: boolean | null; distance_m: number | null };
 }
 
+export interface Place { name: string; label?: string; lon: number; lat: number; kind?: string }
+
+export interface AreaAnalysis {
+  name: string | null; center: [number, number]; radius_km: number; geometry: Geometry; area_ha: number;
+  land_cover_pct: Record<string, number>; tree_cover_ha: number; co2e_t_est: number | null;
+  canopy_height_mean_m: number | null; plantable_ha: number; plantable_top_quartile_survival_ha: number;
+  ndvi_dry_mean: number | null; sources: string[];
+}
+
+export interface Media { url: string; title: string; years: [number, number]; bbox: number[] }
+
+export interface PolicySource {
+  id: string; title: string; publisher: string; url: string; live: boolean; fetched_at: string | null;
+  available: boolean; tls_verified: boolean;
+}
+
 export interface Workspace {
+  place?: Place | null;
+  analysis?: AreaAnalysis | null;
+  media?: Media | null;
   profile?: Profile | null;
   project?: Geometry | null;
   project_name?: string | null;
@@ -83,7 +102,9 @@ export type AgentEvent =
   | { type: "step"; id: string; tool: string; label: string; tech: string[]; args: Record<string, unknown> }
   | { type: "step_done"; id: string; ok: boolean; ms: number; summary: string | null }
   | { type: "state"; patch: Partial<Workspace> & Record<string, unknown> }
-  | { type: "ui"; view: "map" | "plan" | "monitor" | "field"; focus?: string; site_id?: string; layer?: LayerId; plantation_id?: string; expect_alerts?: number }
+  | { type: "ui"; view: "map" | "plan" | "monitor" | "field"; focus?: "assess" | "sites" | "site" | "place" | "area"; site_id?: string; layer?: LayerId; plantation_id?: string; expect_alerts?: number }
+  | { type: "outline"; steps: string[] }
+  | { type: "sources"; items: PolicySource[] }
   | { type: "text"; text: string }
   | { type: "error"; message: string }
   | { type: "done" };
@@ -97,6 +118,8 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
   }
   return res.json() as Promise<T>;
 }
+
+export const mediaUrl = (u: string) => (u.startsWith("/") ? API_BASE + u : u);
 
 export const api = {
   layer: (layer: LayerId) => json<{ tile_url: string }>(`/v1/layers/${layer}`),
