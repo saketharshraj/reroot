@@ -4,12 +4,16 @@
 
 | What | URL | How it deploys |
 |---|---|---|
-| ReRoot Studio (product) | https://reroot-studio-alpha.vercel.app | Vercel Git integration, on push to `main` touching `studio/` (root dir `studio`) |
+| ReRoot Studio (product) | https://rerootearth.com (also https://reroot-studio-alpha.vercel.app) | Vercel Git integration, on push to `main` touching `studio/` (root dir `studio`) |
 | Data Lab (internal) | https://reroot-lab.vercel.app | Vercel Git integration, on push to `main` touching `web/` (root dir `web`) |
 | API on Render Starter (primary, used by both frontends) | https://reroot-api.onrender.com | Render auto-deploy on push touching `src/`, `pyproject.toml`, `uv.lock`, `Dockerfile` |
 | API on Cloud Run (Pub/Sub alert worker + backup) | https://api-152511810602.us-central1.run.app | GitHub Actions `.github/workflows/deploy-cloudrun.yml` on the same backend paths (keyless, Workload Identity Federation) |
 
-Pushes to other paths (docs, contracts) deploy nothing. Manual redeploys: Vercel/Render dashboards
+Pushes to other paths (docs, contracts) deploy nothing.
+
+Custom domain: `rerootearth.com` (registered at BigRock, renews Oct 2027) is attached to the Vercel project
+`reroot-studio`; `www` 308-redirects to the apex. DNS stays at BigRock: `A @ 216.198.79.1`, `A @ 64.29.17.1`,
+`CNAME www a868125ccaabdd25.vercel-dns-017.com`. The API keeps its Render URL; CORS is `*`, so no change there. Manual redeploys: Vercel/Render dashboards
 or `gh workflow run deploy-cloudrun.yml`. Pub/Sub pushes alerts to Cloud Run; both APIs read and write the same BigQuery/GCS, so alerts
 published from Render show up in Studio either way.
 
