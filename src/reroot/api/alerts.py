@@ -17,7 +17,7 @@ from google.cloud import bigquery, pubsub_v1, storage, texttospeech
 from reroot.api import monitor
 from reroot.core import config
 from reroot.core.auth import get_credentials
-from reroot.core.clients import bq, gemini, gen_config
+from reroot.core.clients import bq, firestore_db, gemini, gen_config
 
 log = logging.getLogger(__name__)
 DS = f"{config.PROJECT}.{config.BQ_DATASET}"
@@ -152,7 +152,23 @@ def process(alert: dict) -> dict:
     errors = bq().insert_rows_json(f"{DS}.alerts", [row])
     if errors:
         raise RuntimeError(errors)
+    mirror_to_firestore(row)
     return row
+
+
+def mirror_to_firestore(row: dict) -> None:
+    """Studio's caretaker phone subscribes to `alerts` in Firestore, so a new alert shows up the moment it's
+    written. BigQuery stays the record for analysis; this is best effort and never blocks the alert."""
+    try:
+        firestore_db().collection("alerts").document(row["alert_id"]).set({
+            "alert_id": row["alert_id"], "plantation_id": row["plantation_id"],
+            "created_at": datetime.fromisoformat(row["created_at"]) if isinstance(row["created_at"], str) else row["created_at"],
+            "type": row["type"], "severity": row["severity"], "title": row["title"],
+            "message_en": row["message_en"], "message_local": row["message_local"],
+            "has_audio": bool(row.get("audio_uri")), "delivered": row.get("delivered_at") is not None,
+        })
+    except Exception:  # noqa: BLE001
+        log.exception("firestore mirror failed for alert %s", row.get("alert_id"))
 
 
 def _send_telegram(alert: dict, msg: dict, lang: str) -> bool:

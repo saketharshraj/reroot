@@ -43,5 +43,12 @@ def gen_config(**kw) -> types.GenerateContentConfig:
 
 
 @lru_cache
+def firestore_db():
+    """Firestore (Native, us-central1): the real-time feed Studio's caretaker phone listens to."""
+    from google.cloud import firestore
+    return firestore.Client(project=config.PROJECT, credentials=get_credentials())
+
+
+@lru_cache
 def bq() -> bigquery.Client:
     return bigquery.Client(project=config.PROJECT, credentials=get_credentials(), location=config.BQ_LOCATION)

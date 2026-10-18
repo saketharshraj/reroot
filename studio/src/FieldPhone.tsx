@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Alert, type Plantation, type Verification } from "./api";
+import { watchAlerts } from "./firebase";
 import { Icon } from "./ui";
 
 /** The caretaker's side: alerts arrive as Hindi voice notes; they reply with a photo. */
@@ -18,11 +19,25 @@ export function FieldPhone({ plantations, plantationId, expectSince, onClose }: 
 
   useEffect(() => setTarget(plantationId ?? target), [plantationId]);
 
-  // Poll for alerts while one is expected (Pub/Sub -> notifier -> BigQuery takes ~10-30 s).
+  // Alerts arrive live from Firestore (the Pub/Sub worker on Cloud Run writes each one there).
+  // Without Firebase config, or if the listener fails, fall back to polling the API.
+  const [live, setLive] = useState(false);
   useEffect(() => {
-    let stop = false;
     const since = expectSince ?? 0;
     setWaiting(!!expectSince);
+    if (!pid) return;
+    const unsub = watchAlerts(pid, (a) => {
+      setLive(true);
+      setAlerts(a.slice(0, 6).reverse());
+      if (a.some((x) => new Date(x.created_at).getTime() >= since - 60_000)) setWaiting(false);
+    }, () => setLive(false));
+    return () => { unsub?.(); };
+  }, [pid, expectSince]);
+
+  useEffect(() => {
+    if (live) return;
+    let stop = false;
+    const since = expectSince ?? 0;
     const tick = async () => {
       try {
         const a = await api.alerts(pid ?? undefined);
@@ -35,7 +50,7 @@ export function FieldPhone({ plantations, plantationId, expectSince, onClose }: 
     const id = setInterval(tick, 4000);
     const quit = setTimeout(() => clearInterval(id), 120_000);
     return () => { stop = true; clearInterval(id); clearTimeout(quit); };
-  }, [pid, expectSince]);
+  }, [pid, expectSince, live]);
 
   useEffect(() => { scroller.current?.scrollTo({ top: 1e6, behavior: "smooth" }); }, [alerts, checks, waiting]);
 
@@ -67,6 +82,7 @@ export function FieldPhone({ plantations, plantationId, expectSince, onClose }: 
         </header>
         <div className="phone-body" ref={scroller}>
           <div className="phone-day">Caretaker's phone · {plantation?.name ?? ""}</div>
+          {live && <div className="phone-live" title="Alerts stream from Firestore in real time"><i />Live · Firestore</div>}
           {alerts.map((a) => (
             <div key={a.alert_id} className={`pmsg in ${a.severity}`}>
               <div className="pmsg-title">{a.severity === "critical" ? "⚠️ " : ""}{a.title}</div>

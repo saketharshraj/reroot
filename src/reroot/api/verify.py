@@ -86,5 +86,13 @@ def verify(data: bytes, mime: str, plantation_id: str, lon: float | None = None,
         "dead_saplings_est": vision["dead_or_dry_est"], "confidence": vision["confidence"],
         "notes": vision["summary"], "model": config.GEMINI_MODEL_FAST, "created_at": now,
     }])
+    try:  # field evidence log in Firestore, next to the alerts it answers
+        from reroot.core.clients import firestore_db
+        firestore_db().collection("photo_verifications").document(vid).set({
+            "plantation_id": plantation_id, "created_at": datetime.now(timezone.utc), "location_match": location["match"],
+            "live_saplings_est": vision["live_saplings_est"], "dead_or_dry_est": vision["dead_or_dry_est"],
+            "health": vision.get("health"), "summary": vision["summary"], "confidence": vision["confidence"]})
+    except Exception:  # noqa: BLE001 - never fail a verification over the mirror
+        pass
     return {"verification_id": vid, "plantation_id": plantation_id, "location": location, **vision,
-            "sources": [f"{DS}.plantations", "Gemini vision"]}
+            "sources": [f"{DS}.plantations", "Gemini vision", "Firestore photo_verifications"]}
