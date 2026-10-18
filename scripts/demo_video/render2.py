@@ -492,9 +492,9 @@ def g_logo(frame, t, c, dur):
 
 TECH = [("Earth Engine", "satellites: Sentinel-1/2, Dynamic World, JRC, CHIRPS, ERA5"),
         ("Gemini on Vertex AI", "the agent: 22 tools, plans its own steps"),
-        ("BigQuery", "1-hectare grid + survival model (AUC 0.96)"),
-        ("Cloud Run", "API and on-demand region builder jobs"),
-        ("Pub/Sub", "field alerts, pushed in seconds"),
+        ("BigQuery + Vertex AI", "1-hectare grid + survival model (AUC 0.96)"),
+        ("Cloud Run + Pub/Sub", "API, region builder jobs, alert pipeline"),
+        ("Firestore + Firebase", "live alert feed to phones, Firebase Hosting"),
         ("Text-to-Speech", "Hindi voice notes for caretakers")]
 
 
