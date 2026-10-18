@@ -6,7 +6,7 @@ Google Cloud AI Builder Cup 2026 · **Sustainability & Social Impact**
 
 | | |
 |---|---|
-| **Live app** | **https://reroot-hack-2026.web.app** (Firebase Hosting) · same app at **https://rerootearth.com** (Vercel) |
+| **Live app** | **https://rerootearth.com** · also **https://reroot-hack-2026.web.app** (both Firebase Hosting, API on Cloud Run) |
 | Demo video (3:09) | _link added at submission_ |
 | Pitch deck | _link added at submission_ |
 | API (Cloud Run) | https://api-152511810602.us-central1.run.app/health |
