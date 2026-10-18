@@ -10,5 +10,5 @@ MODULE="${2:-reroot.api.main:app}"
 cd "$(dirname "$0")/.."
 gcloud run deploy "$SERVICE" --source . --project="$PROJECT" --region="$REGION" \
   --service-account="app-runtime@${PROJECT}.iam.gserviceaccount.com" \
-  --allow-unauthenticated --max-instances=3 --memory=1Gi \
-  --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT},SERVICE_MODULE=${MODULE}" --quiet
+  --allow-unauthenticated --max-instances=3 --memory=2Gi \
+  --update-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT},SERVICE_MODULE=${MODULE}" --quiet

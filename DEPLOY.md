@@ -7,16 +7,16 @@
 | ReRoot Studio (product) | https://rerootearth.com (also https://reroot-studio-alpha.vercel.app) | Vercel Git integration, on push to `main` touching `studio/` (root dir `studio`) |
 | ReRoot Studio on Firebase Hosting (mirror) | https://reroot-hack-2026.web.app | `npm run build --prefix studio` then `CLOUDSDK_ACTIVE_CONFIG_NAME=reroot uv run python infra/deploy_firebase_hosting.py studio/dist` (Hosting REST API; no Firebase CLI) |
 | Data Lab (internal) | https://reroot-lab.vercel.app | Vercel Git integration, on push to `main` touching `web/` (root dir `web`) |
-| API on Render Starter (primary, used by both frontends) | https://reroot-api.onrender.com | Render auto-deploy on push touching `src/`, `pyproject.toml`, `uv.lock`, `Dockerfile` |
-| API on Cloud Run (Pub/Sub alert worker + backup) | https://api-152511810602.us-central1.run.app | GitHub Actions `.github/workflows/deploy-cloudrun.yml` on the same backend paths (keyless, Workload Identity Federation) |
+| API on Cloud Run (primary: all three frontends + the Pub/Sub alert worker; min 1 instance, 900 s timeout) | https://api-152511810602.us-central1.run.app | GitHub Actions `.github/workflows/deploy-cloudrun.yml` on push touching `src/`, `pyproject.toml`, `uv.lock`, `Dockerfile` (keyless, Workload Identity Federation) |
+| API on Render Starter (backup, not used by the frontends) | https://reroot-api.onrender.com | Render auto-deploy on the same backend paths |
 
 Pushes to other paths (docs, contracts) deploy nothing.
 
 Custom domain: `rerootearth.com` (registered at BigRock, renews Oct 2027) is attached to the Vercel project
 `reroot-studio`; `www` 308-redirects to the apex. DNS stays at BigRock: `A @ 216.198.79.1`, `A @ 64.29.17.1`,
-`CNAME www a868125ccaabdd25.vercel-dns-017.com`. The API keeps its Render URL; CORS is `*`, so no change there. Manual redeploys: Vercel/Render dashboards
-or `gh workflow run deploy-cloudrun.yml`. Pub/Sub pushes alerts to Cloud Run; both APIs read and write the same BigQuery/GCS, so alerts
-published from Render show up in Studio either way.
+`CNAME www a868125ccaabdd25.vercel-dns-017.com`. CORS is `*`, so new frontend hosts need no API change. Manual redeploys: Vercel/Render dashboards
+or `gh workflow run deploy-cloudrun.yml`. Both APIs read and write the same BigQuery/GCS/Firestore, so switching a frontend back to Render
+(set `VITE_API_BASE_URL` and redeploy) needs nothing else.
 
 ## Backend on Render
 
@@ -46,8 +46,9 @@ it in IAM → Service accounts → app-runtime → Keys.
 infra/deploy.sh
 ```
 URL: https://api-152511810602.us-central1.run.app. No key needed: it runs as `app-runtime`.
-Cloud Run is in the hackathon's judged tech list and stays inside the free tier at demo
-traffic, so it's a good primary with Render as the backup (or the other way round).
+It is the primary API. One instance is kept warm (`--min-instances=1`, set once with
+`gcloud run services update`; deploys keep it), so the first request doesn't wait on a cold start,
+and the 900 s request timeout leaves room for long agent streams.
 
 ## Frontends on Vercel (two projects, same repo)
 
@@ -58,10 +59,9 @@ traffic, so it's a good primary with Render as the backup (or the other way roun
 
 1. Vercel → **Add New → Project** → import `saketharshraj/reroot`.
 2. Set **Root Directory** (`studio`, then repeat for `web`). Framework preset: Vite (auto-detected).
-3. `VITE_API_BASE_URL` = `https://api-152511810602.us-central1.run.app` (or the Render URL), no trailing slash.
+3. `VITE_API_BASE_URL` = `https://api-152511810602.us-central1.run.app`, no trailing slash.
 4. Deploy. If you lock CORS down, add both Vercel URLs to the backend's `ALLOWED_ORIGINS`.
 
-Alerts always flow through Cloud Run (Pub/Sub pushes there), even if Studio talks to Render.
 
 ## Local
 

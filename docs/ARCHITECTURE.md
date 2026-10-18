@@ -96,8 +96,9 @@ Scoring: 2025 features. Holdout is spatial (2 km blocks) to avoid neighbour leak
 
 ## Deploy
 
-See `DEPLOY.md`. Frontend: Vercel (root `web/`). Backend: Render (`render.yaml`, needs a
-service-account key in `GOOGLE_APPLICATION_CREDENTIALS_JSON`) or Cloud Run (`infra/deploy.sh`, no key).
+See `DEPLOY.md`. Frontends: Studio on Firebase Hosting + Vercel (rerootearth.com), Data Lab on Vercel.
+Backend: Cloud Run is primary for all frontends (min 1 instance; `infra/deploy.sh` or GitHub Actions, no key).
+Render (`render.yaml`, needs a service-account key) is a backup the frontends don't use.
 
 ## Commands
 

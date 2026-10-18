@@ -6,10 +6,10 @@ Google Cloud AI Builder Cup 2026 · **Sustainability & Social Impact**
 
 | | |
 |---|---|
-| **Live app** | **https://rerootearth.com** (Vercel) · mirror on **Firebase Hosting: https://reroot-hack-2026.web.app** |
+| **Live app** | **https://reroot-hack-2026.web.app** (Firebase Hosting) · same app at **https://rerootearth.com** (Vercel) |
 | Demo video (3:09) | _link added at submission_ |
 | Pitch deck | _link added at submission_ |
-| API | https://reroot-api.onrender.com/health · Cloud Run: https://api-152511810602.us-central1.run.app/health |
+| API (Cloud Run) | https://api-152511810602.us-central1.run.app/health |
 | Evaluation | [EVALUATION.md](EVALUATION.md) |
 
 ## In brief
@@ -74,7 +74,7 @@ risk and verifies water-replenishment lakes from Sentinel-1 radar, every month s
 
 ```mermaid
 flowchart LR
-  U[Studio: chat + map<br/>Vercel / Firebase Hosting] -->|SSE| A[API on Cloud Run / Render]
+  U[Studio: chat + map<br/>Firebase Hosting / Vercel] -->|SSE| A[API on Cloud Run]
   A --> G[Gemini on Vertex AI<br/>22 tools]
   A --> EE[Earth Engine]
   A --> BQ[(BigQuery + BQML<br/>survival model)]
