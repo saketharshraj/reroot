@@ -15,7 +15,7 @@ from pathlib import Path
 
 from playwright.async_api import async_playwright
 
-URL = "https://reroot-studio-alpha.vercel.app/"
+URL = "https://rerootearth.com/"
 W, H, DSF = 1440, 810, 2
 OUT = Path(sys.argv[1])
 (OUT / "frames").mkdir(parents=True, exist_ok=True)
