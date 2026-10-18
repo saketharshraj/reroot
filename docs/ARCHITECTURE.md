@@ -28,8 +28,8 @@ caretakers as voice notes, photo verification).
 | `src/reroot/pipelines/` | EE feature extraction → `reroot.grid_cells`, model training | Batch, uses standard EE endpoint |
 | `src/reroot/api/` | FastAPI service. `agent.py` (Gemini + 22 tools, SSE), `assess`, `sites`, `plan`, `monitor`, `alerts`, `verify`, `basemap`, `policy` (trusted official sources), `explore` (place search, area analysis, timelapse), `datacenter` (water-positive siting + resource loops), `water` (replenishment verification + ledger) | Contract: `contracts/openapi.yaml` |
 | `src/reroot/notifier/` | Pub/Sub push consumer → Telegram, Cloud TTS voice notes | Contract: `contracts/alert_message.schema.json` |
-| `studio/` | **ReRoot Studio**: the product. Chat-first (Gemini agent) + map canvas, plan doc, monitor, caretaker phone | `VITE_API_BASE_URL`, `VITE_LAB_URL`; Vercel project #1 |
-| `web/` | **Data Lab**: internal visualiser of layers, assess, site search | `VITE_API_BASE_URL`; Vercel project #2 |
+| `studio/` | **ReRoot Studio**: the product. Chat-first (Gemini agent) + map canvas, plan doc, monitor, caretaker phone | `VITE_API_BASE_URL`, `VITE_LAB_URL`; Firebase Hosting site `reroot-hack-2026` |
+| `web/` | **Data Lab**: internal visualiser of layers, assess, site search | `VITE_API_BASE_URL`; Firebase Hosting site `reroot-lab` |
 | `infra/` | setup and deploy scripts | |
 
 Contracts in `contracts/` are the source of truth between agents. Change a contract first,
@@ -96,8 +96,8 @@ Scoring: 2025 features. Holdout is spatial (2 km blocks) to avoid neighbour leak
 
 ## Deploy
 
-See `DEPLOY.md`. Frontends: Studio on Firebase Hosting (rerootearth.com, reroot-hack-2026.web.app; copy on Vercel),
-Data Lab on Vercel. Backend: Cloud Run only (min 1 instance; `infra/deploy.sh` or GitHub Actions, no key).
+See `DEPLOY.md`. Frontends: Studio on Firebase Hosting (rerootearth.com, reroot-hack-2026.web.app), Data Lab on
+Firebase Hosting (reroot-lab.web.app); deploy both with `infra/deploy_firebase_hosting.py`. Backend: Cloud Run only (min 1 instance; `infra/deploy.sh` or GitHub Actions, no key).
 
 ## Commands
 

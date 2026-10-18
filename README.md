@@ -74,7 +74,7 @@ risk and verifies water-replenishment lakes from Sentinel-1 radar, every month s
 
 ```mermaid
 flowchart LR
-  U[Studio: chat + map<br/>Firebase Hosting / Vercel] -->|SSE| A[API on Cloud Run]
+  U[Studio: chat + map<br/>Firebase Hosting] -->|SSE| A[API on Cloud Run]
   A --> G[Gemini on Vertex AI<br/>22 tools]
   A --> EE[Earth Engine]
   A --> BQ[(BigQuery + BQML<br/>survival model)]
