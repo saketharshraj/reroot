@@ -5,6 +5,7 @@
 | What | URL | How it deploys |
 |---|---|---|
 | ReRoot Studio (product) | https://rerootearth.com (also https://reroot-studio-alpha.vercel.app) | Vercel Git integration, on push to `main` touching `studio/` (root dir `studio`) |
+| ReRoot Studio on Firebase Hosting (mirror) | https://reroot-hack-2026.web.app | `npm run build --prefix studio` then `CLOUDSDK_ACTIVE_CONFIG_NAME=reroot uv run python infra/deploy_firebase_hosting.py studio/dist` (Hosting REST API; no Firebase CLI) |
 | Data Lab (internal) | https://reroot-lab.vercel.app | Vercel Git integration, on push to `main` touching `web/` (root dir `web`) |
 | API on Render Starter (primary, used by both frontends) | https://reroot-api.onrender.com | Render auto-deploy on push touching `src/`, `pyproject.toml`, `uv.lock`, `Dockerfile` |
 | API on Cloud Run (Pub/Sub alert worker + backup) | https://api-152511810602.us-central1.run.app | GitHub Actions `.github/workflows/deploy-cloudrun.yml` on the same backend paths (keyless, Workload Identity Federation) |
@@ -70,3 +71,12 @@ uv run uvicorn reroot.api.main:app --reload --port 8080
 ```bash
 npm run dev --prefix web
 ```
+
+## Firebase and Firestore
+
+- Firebase is attached to `reroot-hack-2026`. Default Hosting site `reroot-hack-2026`; web app "ReRoot Studio".
+  Its public web config is `VITE_FIREBASE_CONFIG` (Vercel env and `studio/.env.local`). It's not a secret: access is enforced by rules.
+- Firestore (Native, `us-central1`) holds `alerts`, mirrored by the Pub/Sub worker, which the caretaker phone subscribes to,
+  and `photo_verifications`. Rules: `firestore.rules`, released through the Firebase Rules API. `app-runtime` has `roles/datastore.user`.
+- Don't use the local Firebase CLI for this project: it's logged in to a different (work) account. Use the gcloud
+  `reroot` configuration and the REST APIs, as `infra/deploy_firebase_hosting.py` does.

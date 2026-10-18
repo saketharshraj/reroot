@@ -63,7 +63,8 @@ Scoring: 2025 features. Holdout is spatial (2 km blocks) to avoid neighbour leak
   and a method on `Tools` returning `(result_for_gemini, ui_events)`.
 - Alerts: `/v1/monitor/run` publishes to Pub/Sub `alerts`; subscription `alerts-to-api` pushes
   (OIDC, `pubsub-invoker`) to Cloud Run `/pubsub/alerts`, which writes the Hindi/English message,
-  the Cloud TTS voice note (GCS) and a BigQuery row. Locally set `ALERTS_INLINE=1` to skip Pub/Sub.
+  the Cloud TTS voice note (GCS) and a BigQuery row, and mirrors the alert to Firestore `alerts`. Studio's caretaker
+  phone subscribes to it with the Firebase SDK (`studio/src/firebase.ts`). Locally set `ALERTS_INLINE=1` to skip Pub/Sub.
 - Plan maps crop `gs://reroot-hack-2026-data/basemaps/<region>.png` (render once with
   `uv run python -m reroot.api.basemap`). Demo plantations: `uv run python -m reroot.pipelines.seed_plantations`.
 - Gemini numbers must come from tools. Survival odds are a percentile rank, never a probability.
