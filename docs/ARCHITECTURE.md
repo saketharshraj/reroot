@@ -96,9 +96,8 @@ Scoring: 2025 features. Holdout is spatial (2 km blocks) to avoid neighbour leak
 
 ## Deploy
 
-See `DEPLOY.md`. Frontends: Studio on Firebase Hosting + Vercel (rerootearth.com), Data Lab on Vercel.
-Backend: Cloud Run is primary for all frontends (min 1 instance; `infra/deploy.sh` or GitHub Actions, no key).
-Render (`render.yaml`, needs a service-account key) is a backup the frontends don't use.
+See `DEPLOY.md`. Frontends: Studio on Firebase Hosting (rerootearth.com, reroot-hack-2026.web.app; copy on Vercel),
+Data Lab on Vercel. Backend: Cloud Run only (min 1 instance; `infra/deploy.sh` or GitHub Actions, no key).
 
 ## Commands
 

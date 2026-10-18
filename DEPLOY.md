@@ -4,41 +4,21 @@
 
 | What | URL | How it deploys |
 |---|---|---|
-| ReRoot Studio (product) | https://rerootearth.com (also https://reroot-studio-alpha.vercel.app) | Vercel Git integration, on push to `main` touching `studio/` (root dir `studio`) |
-| ReRoot Studio on Firebase Hosting (mirror) | https://reroot-hack-2026.web.app | `npm run build --prefix studio` then `CLOUDSDK_ACTIVE_CONFIG_NAME=reroot uv run python infra/deploy_firebase_hosting.py studio/dist` (Hosting REST API; no Firebase CLI) |
+| ReRoot Studio (product) | https://rerootearth.com and https://reroot-hack-2026.web.app (Firebase Hosting) | `npm run build --prefix studio` then `CLOUDSDK_ACTIVE_CONFIG_NAME=reroot uv run python infra/deploy_firebase_hosting.py studio/dist` (Hosting REST API; no Firebase CLI) |
+| ReRoot Studio on Vercel (copy) | https://reroot-studio-alpha.vercel.app | Vercel Git integration, on push to `main` touching `studio/` (root dir `studio`) |
 | Data Lab (internal) | https://reroot-lab.vercel.app | Vercel Git integration, on push to `main` touching `web/` (root dir `web`) |
-| API on Cloud Run (primary: all three frontends + the Pub/Sub alert worker; min 1 instance, 900 s timeout) | https://api-152511810602.us-central1.run.app | GitHub Actions `.github/workflows/deploy-cloudrun.yml` on push touching `src/`, `pyproject.toml`, `uv.lock`, `Dockerfile` (keyless, Workload Identity Federation) |
-| API on Render Starter (backup, not used by the frontends) | https://reroot-api.onrender.com | Render auto-deploy on the same backend paths |
+| API on Cloud Run (all frontends + the Pub/Sub alert worker; min 1 instance, 900 s timeout) | https://api-152511810602.us-central1.run.app | GitHub Actions `.github/workflows/deploy-cloudrun.yml` on push touching `src/`, `pyproject.toml`, `uv.lock`, `Dockerfile` (keyless, Workload Identity Federation) |
 
-Pushes to other paths (docs, contracts) deploy nothing.
+Pushes to other paths (docs, contracts) deploy nothing. Firebase Hosting is deployed by hand (command above),
+so rebuild and run it after Studio changes. Manual API redeploy: `gh workflow run deploy-cloudrun.yml`.
 
-Custom domain: `rerootearth.com` (registered at BigRock, renews Oct 2027) is attached to the Vercel project
-`reroot-studio`; `www` 308-redirects to the apex. DNS stays at BigRock: `A @ 216.198.79.1`, `A @ 64.29.17.1`,
-`CNAME www a868125ccaabdd25.vercel-dns-017.com`. CORS is `*`, so new frontend hosts need no API change. Manual redeploys: Vercel/Render dashboards
-or `gh workflow run deploy-cloudrun.yml`. Both APIs read and write the same BigQuery/GCS/Firestore, so switching a frontend back to Render
-(set `VITE_API_BASE_URL` and redeploy) needs nothing else.
+Custom domain: `rerootearth.com` (registered at BigRock, renews Oct 2027) is a Firebase Hosting custom domain on
+site `reroot-hack-2026`. DNS stays at BigRock: `A @ 199.36.158.100`, `TXT @ hosting-site=reroot-hack-2026`, and
+`TXT _acme-challenge` (certificate). `www` is still `CNAME www a868125ccaabdd25.vercel-dns-017.com`: Vercel
+308-redirects it to the apex. CORS on the API is `*`, so new frontend hosts need no API change.
 
-## Backend on Render
-
-Service `reroot-api` (free plan, Docker, Singapore) builds from `main` of
-github.com/saketharshraj/reroot. Render runs outside Google Cloud, so it needs a
-service-account key, mounted as a **Secret File**:
-
-1. Create the key and copy it to the clipboard (the local file is deleted right away):
-   ```bash
-   gcloud iam service-accounts keys create /tmp/gcp-key.json --iam-account=app-runtime@reroot-hack-2026.iam.gserviceaccount.com --project=reroot-hack-2026 && pbcopy < /tmp/gcp-key.json && rm /tmp/gcp-key.json
-   ```
-2. Render dashboard → `reroot-api` → **Environment** → **Secret Files** → Add: filename
-   `gcp-key.json`, paste the clipboard → Save, then **Manual Deploy → Deploy latest commit**.
-3. Open `https://<service>.onrender.com/health?deep=true`. Expect `"ee": true` and `"gemini": "pong"`.
-4. Once the Vercel URL exists, set `ALLOWED_ORIGINS` to it (comma-separate several).
-
-`GOOGLE_APPLICATION_CREDENTIALS=/etc/secrets/gcp-key.json` is already set on the service.
-(Alternatively put the key, raw or base64, in `GOOGLE_APPLICATION_CREDENTIALS_JSON`.)
-
-Free-plan caveats: the service sleeps after 15 minutes idle and takes about a minute to wake,
-and it has 512 MB of RAM. Open `/health` a few minutes before a demo. If the key leaks, delete
-it in IAM → Service accounts → app-runtime → Keys.
+The API ran on Render until 18 October 2026; that service is deleted. Render needed a service-account key because
+it runs outside Google Cloud; Cloud Run doesn't.
 
 ## Backend on Cloud Run (already deployed)
 
